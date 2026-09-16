@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>สร้างใบเสนอราคา — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+  <link rel="stylesheet" href="../assets/css/front.css?v=24"> <!-- ใช้สไตล์ .choices/.pkg-course ร่วมกับหน้าบ้านสำหรับตัวเลือกแพ็กเกจ -->
+  <style>
+    #pkgDialog { width: min(560px, calc(100vw - 32px)); }
+    #pkgDialog .pkg-course { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <main class="container wide">
+    <div class="page-head">
+      <div>
+        <h1 id="pageTitle">สร้างใบเสนอราคา</h1>
+        <div class="muted" id="quoteNo">เลขที่: สร้างอัตโนมัติเมื่อบันทึก</div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="index.html">ยกเลิก</a>
+        <button class="btn" id="btnSave" type="button">บันทึก</button>
+        <button class="btn btn-primary" id="btnSaveView" type="button">บันทึกและดูใบเสนอราคา</button>
+      </div>
+    </div>
+
+    <div class="builder">
+      <!-- ================= ฝั่งซ้าย: เลือกเมนู ================= -->
+      <section class="card picker">
+        <div class="picker-head">
+          <h2>เลือกเมนูอาหาร</h2>
+          <input type="search" id="menuSearch" placeholder="ค้นหาเมนู (ไทย / อังกฤษ)...">
+          <div class="chips" id="catChips"></div>
+        </div>
+        <div class="picker-list" id="menuList">
+          <div class="empty">กำลังโหลดเมนู...</div>
+        </div>
+      </section>
+
+      <!-- ================= ฝั่งขวา: ข้อมูลงาน & รายการ ================= -->
+      <div class="stack">
+        <section class="card">
+          <h2>ข้อมูลลูกค้า</h2>
+          <div class="grid-2">
+            <label class="field"><span class="req">ชื่อผู้ติดต่อ</span><input data-q="customer_name" required></label>
+            <label class="field"><span>บริษัท / หน่วยงาน</span><input data-q="company"></label>
+            <label class="field"><span>โทรศัพท์</span><input data-q="phone" type="tel"></label>
+            <label class="field"><span>อีเมล</span><input data-q="email" type="email"></label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>ข้อมูลงาน</h2>
+          <div class="grid-3">
+            <label class="field"><span>ประเภทงาน</span><select data-q="event_type" id="eventTypeSelect"></select></label>
+            <label class="field span-2"><span>ชื่องาน</span><input data-q="event_name" placeholder="เช่น งานเลี้ยงสังสรรค์ประจำปี"></label>
+            <label class="field"><span>จำนวนแขก (ท่าน)</span><input data-q="guest_count" type="number" min="0" step="1"></label>
+            <label class="field"><span>วันที่จัดงาน</span><input data-q="event_date" type="date"></label>
+            <label class="field"><span>เวลา</span><input data-q="event_time" placeholder="เช่น 18:00 - 22:00"></label>
+            <label class="field"><span>สถานที่ / ห้อง</span><input data-q="venue" placeholder="เช่น Grand Ballroom"></label>
+            <label class="field"><span>ใบเสนอราคาใช้ได้ถึง</span><input data-q="valid_until" type="date"></label>
+            <label class="field"><span>สถานะ</span><select data-q="status" id="statusSelect"></select></label>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>รายการที่เลือก <span class="count" id="lineCount">0</span></h2>
+            <div class="actions">
+              <button class="btn btn-sm" id="btnAddPkg" type="button">+ แพ็กเกจ</button>
+              <button class="btn btn-sm" id="btnAddCustom" type="button">+ รายการอื่นๆ</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table lines">
+              <thead>
+                <tr>
+                  <th>รายการ</th>
+                  <th class="c-qty">จำนวน</th>
+                  <th class="c-unit">หน่วย</th>
+                  <th class="c-price">ราคา/หน่วย</th>
+                  <th class="c-amt num">จำนวนเงิน</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="lineBody"></tbody>
+            </table>
+          </div>
+
+          <div class="totals">
+            <div class="row"><span>รวมเป็นเงิน</span><strong class="num" id="tSubtotal">0.00</strong></div>
+            <div class="row"><span>ส่วนลด (บาท)</span><input data-q="discount" type="number" min="0" step="0.01"></div>
+            <div class="row">
+              <span class="inline">ค่าบริการ <input data-q="service_charge_pct" type="number" min="0" step="0.01"> %</span>
+              <span class="num" id="tSc">0.00</span>
+            </div>
+            <div class="row">
+              <span class="inline">ภาษีมูลค่าเพิ่ม <input data-q="vat_pct" type="number" min="0" step="0.01"> %</span>
+              <span class="num" id="tVat">0.00</span>
+            </div>
+            <div class="row grand"><span>ยอดรวมสุทธิ</span><span class="num" id="tGrand">0.00</span></div>
+            <div class="baht-text" id="tBaht"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <label class="field">
+            <span>หมายเหตุเพิ่มเติม (แสดงในใบเสนอราคา)</span>
+            <textarea data-q="notes" rows="3" placeholder="เช่น ลูกค้าแพ้อาหารทะเล 3 ท่าน, ขอเมนูมังสวิรัติ 5 ชุด"></textarea>
+          </label>
+          <label class="field" style="margin-top:12px">
+            <span>🔒 หมายเหตุภายใน (เฉพาะพนักงาน ลูกค้าไม่เห็น และไม่พิมพ์ในใบเสนอราคา)</span>
+            <textarea data-q="internal_note" rows="2" placeholder="เช่น โทรคุยแล้ว 15 ก.ย. ลูกค้าขอส่วนลดเพิ่ม"></textarea>
+          </label>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ---------- Dialog: เพิ่มแพ็กเกจ (โต๊ะจีน / ชุดไทย) ---------- -->
+  <dialog id="pkgDialog">
+    <div class="dialog-head">
+      <h2>เพิ่มแพ็กเกจ</h2>
+      <button type="button" class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="dialog-body">
+      <label class="field"><span>เลือกแพ็กเกจ</span>
+        <select id="pkgSelectDropdown"><option value="">— เลือกแพ็กเกจ —</option></select>
+      </label>
+      <div id="pkgDialogBody"></div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
+      <button type="button" class="btn btn-primary" id="btnAddPkgLine" disabled>เพิ่มลงใบเสนอราคา</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    const QUOTE_FIELDS = [
+      'status', 'customer_name', 'company', 'phone', 'email', 'event_type', 'event_name', 'event_date', 'event_time',
+      'venue', 'guest_count', 'notes', 'internal_note', 'discount', 'service_charge_pct', 'vat_pct', 'valid_until',
+    ];
+    const CUSTOM_CATEGORY = 'รายการอื่นๆ';
+
+    let settings = null;
+    let categories = [];
+    let menuItems = [];
+    let packages = [];
+    let quote = {};
+    let lines = [];      // { key, menu_item_id, category_name, name, description, unit, per_person, qty, unit_price, sync, is_package }
+    let activeCat = 'all';
+    let dirty = false;
+    let keySeq = 0;
+    let dialogPkg = null;
+    let dialogChoices = new Map(); // course_id -> Set(menu_item_id)
+    let dialogQty = 1;
+
+    (async () => {
+      const session = await requireAuth();
+      renderHeader(qs('id') ? 'quotes' : 'new', session);
+      $('#statusSelect').innerHTML = statusOptions('draft');
+
+      try {
+        const [s, cats, items, pkgs] = await Promise.all([
+          loadSettings(),
+          sb.from('menu_categories').select('*').order('sort_order').order('name'),
+          sb.from('menu_items').select('*').eq('is_active', true).order('sort_order').order('name'),
+          sb.rpc('get_public_packages'),
+        ]);
+        if (cats.error) throw cats.error;
+        if (items.error) throw items.error;
+        if (pkgs.error) throw pkgs.error;
+        settings = s;
+        categories = cats.data;
+        menuItems = items.data;
+        packages = pkgs.data || [];
+        packages.forEach((p) => {
+          p.choiceById = new Map();
+          p.courses.forEach((c) => c.choices.forEach((ch) => p.choiceById.set(ch.menu_item_id, ch)));
+        });
+
+        const id = qs('id');
+        if (id) await loadQuote(id);
+        else newQuote();
+      } catch (err) {
+        showError(err);
+        return;
+      }
+
+      fillForm();
+      renderChips();
+      renderMenu();
+      renderPkgDropdown();
+      renderLines();
+      bindEvents();
+    })();
+
+    /* ---------------- Data ---------------- */
+    function newQuote() {
+      quote = {
+        id: null,
+        status: 'draft',
+        customer_name: '', company: '', phone: '', email: '',
+        event_type: '', event_name: '', event_date: '', event_time: '', venue: '',
+        guest_count: 0, notes: '', internal_note: '', discount: 0,
+        service_charge_pct: Number(settings.service_charge_pct) || 0,
+        vat_pct: Number(settings.vat_pct) || 0,
+        valid_until: isoDate(Number(settings.valid_days) || 30),
+      };
+      lines = [];
+    }
+
+    async function loadQuote(id) {
+      const { data, error } = await sb
+        .from('quotations')
+        .select('*, quotation_items(*)')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('ไม่พบใบเสนอราคานี้');
+
+      quote = { id: data.id };
+      QUOTE_FIELDS.forEach((f) => { quote[f] = data[f] ?? ''; });
+      quote.guest_count = Number(data.guest_count) || 0;
+
+      lines = data.quotation_items
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((it) => ({
+          key: ++keySeq,
+          menu_item_id: it.menu_item_id,
+          is_package: it.menu_item_id == null && it.category_name === 'แพ็กเกจอาหาร',
+          category_name: it.category_name || '',
+          name: it.name,
+          description: it.description || '',
+          unit: it.unit,
+          per_person: it.per_person,
+          qty: Number(it.qty),
+          unit_price: Number(it.unit_price),
+          sync: it.per_person && Number(it.qty) === quote.guest_count,
+        }));
+
+      $('#pageTitle').textContent = 'แก้ไขใบเสนอราคา';
+      $('#quoteNo').innerHTML = `เลขที่: <strong>${esc(data.quote_no)}</strong>`;
+      document.title = `แก้ไข ${data.quote_no} — Banquet Quotation`;
+    }
+
+    function categoryName(categoryId) {
+      return categories.find((c) => c.id === categoryId)?.name || 'ไม่มีหมวด';
+    }
+
+    function sortLines() {
+      const rank = new Map(categories.map((c, i) => [c.name, i]));
+      const rankOf = (l) => (l.menu_item_id == null && l.category_name === CUSTOM_CATEGORY)
+        ? Infinity
+        : (rank.has(l.category_name) ? rank.get(l.category_name) : categories.length);
+      lines.sort((a, b) => rankOf(a) - rankOf(b));
+    }
+
+    /* ---------------- Render: form ---------------- */
+    function fillForm() {
+      const types = [...EVENT_TYPES];
+      if (quote.event_type && !types.includes(quote.event_type)) types.push(quote.event_type);
+      $('#eventTypeSelect').innerHTML = '<option value="">— ไม่ระบุ —</option>'
+        + types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+
+      $$('[data-q]').forEach((el) => { el.value = quote[el.dataset.q] ?? ''; });
+    }
+
+    /* ---------------- Render: menu picker ---------------- */
+    function renderChips() {
+      const usedIds = new Set(menuItems.map((m) => m.category_id));
+      const chips = [['all', 'ทั้งหมด']]
+        .concat(categories.filter((c) => usedIds.has(c.id)).map((c) => [String(c.id), c.name]));
+      if (usedIds.has(null)) chips.push(['none', 'ไม่มีหมวด']);
+
+      $('#catChips').innerHTML = chips.map(([key, label]) =>
+        `<button type="button" class="chip ${key === activeCat ? 'active' : ''}" data-cat="${key}">${esc(label)}</button>`
+      ).join('');
+    }
+
+    function renderMenu() {
+      const term = $('#menuSearch').value.trim().toLowerCase();
+      const visible = menuItems.filter((m) => {
+        if (activeCat === 'none' && m.category_id != null) return false;
+        if (activeCat !== 'all' && activeCat !== 'none' && String(m.category_id) !== activeCat) return false;
+        if (!term) return true;
+        return [m.name, m.name_en, m.description].some((v) => (v || '').toLowerCase().includes(term));
+      });
+
+      if (!menuItems.length) {
+        $('#menuList').innerHTML = '<div class="empty">ยังไม่มีเมนู — <a href="menu.html">เพิ่มเมนู</a></div>';
+        return;
+      }
+      if (!visible.length) {
+        $('#menuList').innerHTML = '<div class="empty">ไม่พบเมนูที่ค้นหา</div>';
+        return;
+      }
+
+      const groups = [...categories.map((c) => ({ id: c.id, name: c.name })), { id: null, name: 'ไม่มีหมวด' }]
+        .map((g) => ({ ...g, items: visible.filter((m) => m.category_id === g.id) }))
+        .filter((g) => g.items.length);
+
+      const selected = new Set(lines.map((l) => l.menu_item_id).filter((x) => x != null));
+
+      $('#menuList').innerHTML = groups.map((g) => `
+        <div class="cat-title">${esc(g.name)}</div>
+        ${g.items.map((m) => menuItemHtml(m, selected.has(m.id))).join('')}
+      `).join('');
+    }
+
+    function menuItemHtml(m, isSelected) {
+      return `
+        <div class="menu-item ${isSelected ? 'selected' : ''}" data-id="${m.id}">
+          ${m.image_url ? `<img src="${esc(m.image_url)}" alt="" loading="lazy">` : ''}
+          <div class="mi-body">
+            <div class="mi-name">${esc(m.name)}</div>
+            ${m.name_en ? `<div class="mi-en">${esc(m.name_en)}</div>` : ''}
+            ${m.description ? `<div class="mi-desc">${esc(m.description)}</div>` : ''}
+          </div>
+          <div class="mi-side">
+            <div class="mi-price">฿${money(m.price)} <small>/${esc(m.unit)}</small></div>
+            <button type="button" class="btn btn-sm ${isSelected ? 'btn-accent' : 'btn-primary'}" data-toggle="${m.id}"
+              title="${isSelected ? 'คลิกเพื่อเอาออก' : 'เพิ่มในใบเสนอราคา'}">
+              ${isSelected ? '✓ เลือกแล้ว' : '+ เพิ่ม'}
+            </button>
+          </div>
+        </div>`;
+    }
+
+    function refreshMenuSelection() {
+      const selected = new Set(lines.map((l) => l.menu_item_id).filter((x) => x != null));
+      $$('.menu-item[data-id]').forEach((el) => {
+        const m = menuItems.find((x) => x.id === Number(el.dataset.id));
+        if (!m) return;
+        const isSel = selected.has(m.id);
+        if (el.classList.contains('selected') !== isSel) el.outerHTML = menuItemHtml(m, isSel);
+      });
+    }
+
+    /* ---------------- Render: lines ---------------- */
+    function renderLines() {
+      $('#lineCount').textContent = lines.length;
+
+      if (!lines.length) {
+        $('#lineBody').innerHTML = `<tr><td colspan="6" class="empty">ยังไม่มีรายการ — เลือกเมนูจากฝั่งซ้าย หรือกด "+ รายการอื่นๆ"</td></tr>`;
+      } else {
+        $('#lineBody').innerHTML = lines.map(lineHtml).join('');
+      }
+      renderTotals();
+      refreshMenuSelection();
+    }
+
+    function lineHtml(l) {
+      const isCustom = l.menu_item_id == null && !l.is_package;
+      const amount = round2((Number(l.qty) || 0) * (Number(l.unit_price) || 0));
+      const syncHtml = l.per_person
+        ? (l.sync
+            ? '<span class="sync-tag">🔗 ตามจำนวนแขก</span>'
+            : '<button type="button" class="btn btn-ghost btn-sm sync-tag" data-act="sync">↺ ใช้จำนวนแขก</button>')
+        : '';
+
+      return `
+        <tr data-key="${l.key}">
+          <td>
+            ${l.category_name ? `<div class="line-cat">${esc(l.category_name)}</div>` : ''}
+            ${isCustom
+              ? `<input data-f="name" value="${esc(l.name)}" placeholder="ชื่อรายการ เช่น ค่าเช่าห้อง">`
+              : `<strong>${esc(l.name)}</strong>${l.description ? `<div class="muted small">${esc(l.description).replace(/\n/g, '<br>')}</div>` : ''}`}
+          </td>
+          <td class="c-qty" data-label="จำนวน"><input data-f="qty" type="number" min="0" step="1" inputmode="decimal" value="${l.qty}">${syncHtml}</td>
+          <td class="c-unit" data-label="หน่วย">${isCustom ? `<input data-f="unit" value="${esc(l.unit)}">` : esc(l.unit)}</td>
+          <td class="c-price" data-label="ราคา/หน่วย"><input data-f="unit_price" type="number" min="0" step="0.01" inputmode="decimal" value="${l.unit_price}"></td>
+          <td class="c-amt num" data-label="จำนวนเงิน">${money(amount)}</td>
+          <td><button type="button" class="icon-btn" data-act="remove" title="ลบรายการ">✕</button></td>
+        </tr>`;
+    }
+
+    function renderTotals() {
+      const t = calcTotals(lines, quote.discount, quote.service_charge_pct, quote.vat_pct);
+      $('#tSubtotal').textContent = money(t.subtotal);
+      $('#tSc').textContent = money(t.serviceCharge);
+      $('#tVat').textContent = money(t.vat);
+      $('#tGrand').textContent = '฿' + money(t.grandTotal);
+      $('#tBaht').textContent = t.grandTotal ? `(${bahtText(t.grandTotal)})` : '';
+    }
+
+    /* ---------------- แพ็กเกจ (dialog) ---------------- */
+    function renderPkgDropdown() {
+      const sel = $('#pkgSelectDropdown');
+      sel.innerHTML = '<option value="">— เลือกแพ็กเกจ —</option>'
+        + packages.map((p) => `<option value="${p.id}">${esc(p.name)} (฿${money0(p.price)}/${esc(p.unit)})</option>`).join('');
+    }
+
+    function pkgDialogIsComplete() {
+      return !!dialogPkg && dialogPkg.courses.every((c) => (dialogChoices.get(c.id)?.size || 0) === c.pick_count);
+    }
+
+    function openPkgDialog() {
+      dialogPkg = null;
+      dialogChoices = new Map();
+      dialogQty = 1;
+      $('#pkgSelectDropdown').value = '';
+      $('#pkgDialogBody').innerHTML = '';
+      $('#btnAddPkgLine').disabled = true;
+      $('#pkgDialog').showModal();
+    }
+
+    function renderPkgDialogCourses() {
+      if (!dialogPkg) { $('#pkgDialogBody').innerHTML = ''; $('#btnAddPkgLine').disabled = true; return; }
+      const g = Number(quote.guest_count) || 0;
+
+      $('#pkgDialogBody').innerHTML = `
+        ${dialogPkg.image_url ? `<img src="${esc(dialogPkg.image_url)}" alt="" style="width:100%;max-height:140px;object-fit:cover;border-radius:8px;margin-bottom:10px" onerror="this.remove()">` : ''}
+        ${dialogPkg.courses.map((c) => {
+          const chosen = dialogChoices.get(c.id) || new Set();
+          const multi = c.pick_count > 1;
+          const full = chosen.size >= c.pick_count;
+          return `
+            <div class="pkg-course">
+              <div class="pkg-course-head">
+                <span>${esc(c.name)}</span>
+                <span class="pkg-course-count ${chosen.size === c.pick_count ? 'done' : ''}">เลือกแล้ว ${chosen.size}/${c.pick_count}</span>
+              </div>
+              <div class="choices">
+                ${c.choices.map((ch) => {
+                  const checked = chosen.has(ch.menu_item_id);
+                  const disable = !checked && multi && full;
+                  return `<label class="choice ${disable ? 'disabled' : ''}">
+                    <input type="${multi ? 'checkbox' : 'radio'}" ${multi ? '' : `name="dlgpkgc-${c.id}"`}
+                      data-dlg-course="${c.id}" data-dlg-item="${ch.menu_item_id}" data-dlg-pick="${c.pick_count}"
+                      ${checked ? 'checked' : ''} ${disable ? 'disabled' : ''}>
+                    <span>${esc(ch.name)}</span>
+                  </label>`;
+                }).join('')}
+              </div>
+            </div>`;
+        }).join('')}
+        ${!dialogPkg.per_person ? `
+          <div class="pkg-qty">
+            <span class="group-label" style="margin:0">จำนวน${esc(dialogPkg.unit)}</span>
+            <div class="guest-input">
+              <button type="button" id="dlgQtyMinus">−</button>
+              <input type="number" id="dlgQtyInput" value="${dialogQty}" min="1" max="100">
+              <button type="button" id="dlgQtyPlus">+</button>
+            </div>
+          </div>` : `<div class="pkg-qty muted small">ราคาคิดตามจำนวนแขก (${num(g)} ท่าน)</div>`}`;
+
+      $('#btnAddPkgLine').disabled = !pkgDialogIsComplete();
+
+      $('#dlgQtyMinus')?.addEventListener('click', () => { dialogQty = Math.max(dialogQty - 1, 1); renderPkgDialogCourses(); });
+      $('#dlgQtyPlus')?.addEventListener('click', () => { dialogQty = Math.min(dialogQty + 1, 100); renderPkgDialogCourses(); });
+      $('#dlgQtyInput')?.addEventListener('input', (e) => { dialogQty = Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), 100); $('#btnAddPkgLine').disabled = !pkgDialogIsComplete(); });
+    }
+
+    function addPkgLine() {
+      if (!pkgDialogIsComplete()) return;
+      const g = Number(quote.guest_count) || 0;
+      const description = dialogPkg.courses.map((c) => {
+        const names = [...(dialogChoices.get(c.id) || [])].map((id) => dialogPkg.choiceById.get(id)?.name).filter(Boolean);
+        return `${c.name}: ${names.join(', ')}`;
+      }).join('\n');
+
+      lines.push({
+        key: ++keySeq, menu_item_id: null, is_package: true,
+        category_name: 'แพ็กเกจอาหาร', name: dialogPkg.name, description,
+        unit: dialogPkg.unit, per_person: dialogPkg.per_person,
+        qty: dialogPkg.per_person ? g : dialogQty,
+        unit_price: Number(dialogPkg.price),
+        sync: dialogPkg.per_person,
+      });
+      sortLines();
+      dirty = true;
+      renderLines();
+      $('#pkgDialog').close();
+      toast('เพิ่มแพ็กเกจแล้ว');
+    }
+
+    /* ---------------- Actions ---------------- */
+    function toggleMenuItem(id) {
+      const idx = lines.findIndex((l) => l.menu_item_id === id);
+      if (idx >= 0) {
+        lines.splice(idx, 1);
+      } else {
+        const m = menuItems.find((x) => x.id === id);
+        if (!m) return;
+        lines.push({
+          key: ++keySeq,
+          menu_item_id: m.id,
+          category_name: categoryName(m.category_id),
+          name: m.name,
+          description: m.description || '',
+          unit: m.unit,
+          per_person: m.per_person,
+          qty: m.per_person ? (Number(quote.guest_count) || 0) : 1,
+          unit_price: Number(m.price),
+          sync: m.per_person,
+        });
+        sortLines();
+      }
+      dirty = true;
+      renderLines();
+    }
+
+    function addCustomLine() {
+      const line = {
+        key: ++keySeq, menu_item_id: null, category_name: CUSTOM_CATEGORY,
+        name: '', description: '', unit: 'รายการ', per_person: false, qty: 1, unit_price: 0, sync: false,
+      };
+      lines.push(line);
+      dirty = true;
+      renderLines();
+      $(`tr[data-key="${line.key}"] [data-f="name"]`)?.focus();
+    }
+
+    async function save(thenView) {
+      if (!String(quote.customer_name || '').trim()) {
+        toast('กรุณาระบุชื่อผู้ติดต่อ', 'error');
+        $('[data-q="customer_name"]').focus();
+        return;
+      }
+      const validLines = lines.filter((l) => String(l.name).trim());
+      if (!validLines.length) {
+        toast('กรุณาเลือกเมนูอย่างน้อย 1 รายการ', 'error');
+        return;
+      }
+
+      const payload = {
+        ...quote,
+        guest_count: Math.max(parseInt(quote.guest_count, 10) || 0, 0),
+        discount: Math.max(Number(quote.discount) || 0, 0),
+        service_charge_pct: Math.max(Number(quote.service_charge_pct) || 0, 0),
+        vat_pct: Math.max(Number(quote.vat_pct) || 0, 0),
+      };
+      const items = validLines.map(({ key, sync, ...l }) => ({
+        ...l,
+        name: String(l.name).trim(),
+        qty: Math.max(Number(l.qty) || 0, 0),
+        unit_price: Math.max(Number(l.unit_price) || 0, 0),
+      }));
+
+      const { data: id, error } = await sb.rpc('save_quotation', { p_quote: payload, p_items: items });
+      if (error) return showError(error);
+
+      dirty = false;
+      if (thenView) {
+        location.href = `quote-view.html?id=${id}`;
+        return;
+      }
+
+      if (!quote.id) {
+        quote.id = id;
+        history.replaceState(null, '', `quote-edit.html?id=${id}`);
+        const { data } = await sb.from('quotations').select('quote_no').eq('id', id).single();
+        if (data) {
+          $('#pageTitle').textContent = 'แก้ไขใบเสนอราคา';
+          $('#quoteNo').innerHTML = `เลขที่: <strong>${esc(data.quote_no)}</strong>`;
+          document.title = `แก้ไข ${data.quote_no} — Banquet Quotation`;
+        }
+      }
+      toast('บันทึกแล้ว');
+    }
+
+    /* ---------------- Events ---------------- */
+    function bindEvents() {
+      $$('[data-q]').forEach((el) => el.addEventListener('input', () => {
+        const field = el.dataset.q;
+        if (field === 'guest_count') {
+          const guests = Math.max(parseInt(el.value, 10) || 0, 0);
+          quote.guest_count = guests;
+          lines.forEach((l) => { if (l.sync) l.qty = guests; });
+          renderLines();
+        } else {
+          quote[field] = el.value;
+          renderTotals();
+        }
+        dirty = true;
+      }));
+
+      $('#menuSearch').addEventListener('input', renderMenu);
+
+      $('#catChips').addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-cat]');
+        if (!chip) return;
+        activeCat = chip.dataset.cat;
+        renderChips();
+        renderMenu();
+        $('#menuList').scrollTop = 0;
+      });
+
+      $('#menuList').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-toggle]');
+        if (btn) toggleMenuItem(Number(btn.dataset.toggle));
+      });
+
+      $('#lineBody').addEventListener('input', (e) => {
+        const tr = e.target.closest('tr[data-key]');
+        const field = e.target.dataset.f;
+        const line = tr && lines.find((l) => l.key === Number(tr.dataset.key));
+        if (!line || !field) return;
+
+        line[field] = e.target.value;
+        if (field === 'qty' && line.sync) {
+          line.sync = false;
+          const tag = $('.sync-tag', tr);
+          if (tag) tag.outerHTML = '<button type="button" class="btn btn-ghost btn-sm sync-tag" data-act="sync">↺ ใช้จำนวนแขก</button>';
+        }
+        $('.c-amt', tr).textContent = money(round2((Number(line.qty) || 0) * (Number(line.unit_price) || 0)));
+        dirty = true;
+        renderTotals();
+      });
+
+      $('#lineBody').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-act]');
+        const tr = btn?.closest('tr[data-key]');
+        if (!tr) return;
+        const idx = lines.findIndex((l) => l.key === Number(tr.dataset.key));
+        if (idx < 0) return;
+
+        if (btn.dataset.act === 'remove') lines.splice(idx, 1);
+        if (btn.dataset.act === 'sync') {
+          lines[idx].sync = true;
+          lines[idx].qty = Number(quote.guest_count) || 0;
+        }
+        dirty = true;
+        renderLines();
+      });
+
+      $('#btnAddCustom').addEventListener('click', addCustomLine);
+      $('#btnAddPkg').addEventListener('click', openPkgDialog);
+      $$('[data-close]', $('#pkgDialog')).forEach((b) => b.addEventListener('click', () => $('#pkgDialog').close()));
+
+      $('#pkgSelectDropdown').addEventListener('change', (e) => {
+        const id = Number(e.target.value);
+        dialogPkg = packages.find((p) => p.id === id) || null;
+        dialogChoices = new Map();
+        dialogQty = dialogPkg?.per_person ? (Number(quote.guest_count) || 0) : 1;
+        renderPkgDialogCourses();
+      });
+
+      $('#pkgDialogBody').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-dlg-course]');
+        if (!el) return;
+        const courseId = Number(el.dataset.dlgCourse);
+        const itemId = Number(el.dataset.dlgItem);
+        const pick = Number(el.dataset.dlgPick);
+        let set = dialogChoices.get(courseId);
+        if (!set) { set = new Set(); dialogChoices.set(courseId, set); }
+
+        if (el.type === 'radio') { set.clear(); set.add(itemId); }
+        else if (el.checked) {
+          if (set.size < pick) set.add(itemId);
+          else { el.checked = false; return; }
+        } else set.delete(itemId);
+        renderPkgDialogCourses();
+      });
+
+      $('#btnAddPkgLine').addEventListener('click', addPkgLine);
+      $('#btnSave').addEventListener('click', (e) => withBusy(e.currentTarget, () => save(false)));
+      $('#btnSaveView').addEventListener('click', (e) => withBusy(e.currentTarget, () => save(true)));
+
+      window.addEventListener('beforeunload', (e) => {
+        if (!dirty) return;
+        e.preventDefault();
+        e.returnValue = '';
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>รายการที่บันทึก — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+  <style>
+    /* มือถือ: แต่ละรายการเป็นการ์ด เรียงข้อมูลใหม่ */
+    @media (max-width: 720px) {
+      #quoteTable td.c-no { order: 1; }
+      #quoteTable td.c-status { order: 2; text-align: right; }
+      #quoteTable td.c-customer { order: 3; grid-column: 1 / -1; font-weight: 600; }
+      #quoteTable td.c-event { order: 4; }
+      #quoteTable td.c-date { order: 5; text-align: right; }
+      #quoteTable td.c-guests { order: 6; }
+      #quoteTable td.c-total { order: 7; text-align: right; }
+      #quoteTable td.c-created { display: none; }
+      #quoteTable td.c-actions { order: 8; grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container wide">
+    <div class="page-head">
+      <div>
+        <h1>รายการที่บันทึก</h1>
+        <div class="muted">คำขอจากลูกค้าและใบเสนอราคาทั้งหมด</div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btnRefresh" type="button">↻ รีเฟรช</button>
+        <a class="btn btn-primary" href="quote-edit.html">+ สร้างใบเสนอราคา</a>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+
+    <section class="card">
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="ค้นหาเลขที่ ชื่อ บริษัท เบอร์โทร ชื่องาน...">
+        <select id="statusFilter"><option value="">ทุกสถานะ</option></select>
+        <select id="sourceFilter">
+          <option value="">ทุกช่องทาง</option>
+          <option value="web">🌐 จากหน้าเว็บ</option>
+          <option value="staff">👤 พนักงานสร้าง</option>
+        </select>
+        <label class="check small">วันงาน <input type="date" id="dateFrom"></label>
+        <label class="check small">ถึง <input type="date" id="dateTo"></label>
+        <select id="sortBy">
+          <option value="created">เรียง: ส่งล่าสุด</option>
+          <option value="event">เรียง: วันงานใกล้สุด</option>
+        </select>
+        <button class="btn btn-sm btn-ghost" id="btnClear" type="button">ล้างตัวกรอง</button>
+      </div>
+      <div class="table-wrap">
+        <table class="table stack-sm" id="quoteTable">
+          <thead>
+            <tr>
+              <th>เลขที่</th>
+              <th>ลูกค้า</th>
+              <th>งาน</th>
+              <th>วันงาน</th>
+              <th class="num">แขก</th>
+              <th class="num">ยอดสุทธิ</th>
+              <th>สถานะ</th>
+              <th>บันทึกเมื่อ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="9" class="empty">กำลังโหลด...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager" id="pager"></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    const PAGE_SIZE = 50;
+    let page = 0;
+    let total = 0;
+    let quotes = [];
+    let settings = null;
+    let searchTimer = null;
+
+    (async () => {
+      const session = await requireAuth();
+      renderHeader('quotes', session);
+      $('#statusFilter').insertAdjacentHTML('beforeend', statusOptions(''));
+      bindEvents();
+
+      try {
+        settings = await loadSettings();
+      } catch (err) {
+        showError(err);
+      }
+      refresh();
+    })();
+
+    function refresh() {
+      loadStats();
+      loadQuotes();
+    }
+
+    async function loadStats() {
+      const { data, error } = await sb.rpc('quotation_stats');
+      if (error) return showError(error);
+      const get = (s) => data.find((x) => x.status === s) || { cnt: 0, total: 0 };
+      const card = (status, label, sub, extra = '') => `
+        <button type="button" class="card stat clickable ${extra}" data-status="${status}">
+          <div class="label">${label}</div>
+          <div class="value">${num(get(status).cnt)}</div>
+          <div class="sub">${sub}</div>
+        </button>`;
+
+      const newCount = Number(get('new').cnt);
+      $('#stats').innerHTML =
+        card('new', '🔔 คำขอใหม่', 'จากหน้าเว็บ รอตรวจสอบ', newCount ? 'highlight' : '') +
+        card('draft', 'ฉบับร่าง', 'กำลังจัดทำ') +
+        card('sent', 'ส่งลูกค้าแล้ว', `฿${money(get('sent').total)}`) +
+        card('confirmed', 'ยืนยันแล้ว', `฿${money(get('confirmed').total)}`);
+
+      document.title = (newCount ? `(${newCount}) ` : '') + 'รายการที่บันทึก — หลังบ้าน';
+    }
+
+    async function loadQuotes() {
+      const status = $('#statusFilter').value;
+      const source = $('#sourceFilter').value;
+      const dateFrom = $('#dateFrom').value;
+      const dateTo = $('#dateTo').value;
+      // ตัดอักขระที่มีความหมายพิเศษในตัวกรองของ Supabase ออก
+      const term = $('#search').value.replace(/[,()*%\\:"'.]/g, ' ').trim();
+
+      let query = sb
+        .from('quotations')
+        .select('id, quote_no, status, source, customer_name, company, phone, event_type, event_name, event_date, guest_count, grand_total, created_at', { count: 'exact' });
+
+      if (status) query = query.eq('status', status);
+      if (source) query = query.eq('source', source);
+      if (dateFrom) query = query.gte('event_date', dateFrom);
+      if (dateTo) query = query.lte('event_date', dateTo);
+      if (term) {
+        query = query.or(['quote_no', 'customer_name', 'company', 'phone', 'event_name']
+          .map((col) => `${col}.ilike.%${term}%`).join(','));
+      }
+
+      query = $('#sortBy').value === 'event'
+        ? query.order('event_date', { ascending: true, nullsFirst: false }).order('created_at', { ascending: false })
+        : query.order('created_at', { ascending: false });
+
+      const from = page * PAGE_SIZE;
+      const { data, error, count } = await query.range(from, from + PAGE_SIZE - 1);
+      if (error) return showError(error);
+
+      quotes = data;
+      total = count || 0;
+      if (!quotes.length && page > 0 && total > 0) {
+        page = Math.max(Math.ceil(total / PAGE_SIZE) - 1, 0);
+        return loadQuotes();
+      }
+      renderRows();
+      renderPager();
+    }
+
+    function renderRows() {
+      const hasFilter = $('#search').value || $('#statusFilter').value || $('#sourceFilter').value
+        || $('#dateFrom').value || $('#dateTo').value;
+
+      if (!quotes.length) {
+        $('#rows').innerHTML = `<tr><td colspan="9" class="empty">
+          ${hasFilter ? 'ไม่พบรายการที่ตรงกับตัวกรอง' : 'ยังไม่มีรายการ — รอลูกค้าส่งคำขอจากหน้าเว็บ หรือ <a href="quote-edit.html">สร้างใบเสนอราคา</a>'}
+        </td></tr>`;
+        return;
+      }
+
+      $('#rows').innerHTML = quotes.map((q) => `
+        <tr class="${q.status === 'new' ? 'row-new' : ''}">
+          <td class="nowrap c-no">
+            <a href="quote-view.html?id=${q.id}"><strong>${esc(q.quote_no)}</strong></a>
+            <div class="small muted">${q.source === 'web' ? '🌐 หน้าเว็บ' : '👤 พนักงาน'}</div>
+          </td>
+          <td class="c-customer">
+            ${esc(q.customer_name)}
+            ${q.company ? `<div class="muted small">${esc(q.company)}</div>` : ''}
+            ${q.phone ? `<div class="small"><a href="tel:${esc(q.phone)}">${esc(formatPhone(q.phone))}</a></div>` : ''}
+          </td>
+          <td class="c-event" data-label="งาน">
+            ${esc(q.event_type || '')}
+            ${q.event_name ? `<div class="muted small">${esc(q.event_name)}</div>` : ''}
+            ${!q.event_type && !q.event_name ? '-' : ''}
+          </td>
+          <td class="nowrap c-date" data-label="วันงาน">${thaiDate(q.event_date, 'short')}</td>
+          <td class="num c-guests" data-label="แขก">${num(q.guest_count)} <span class="muted small">ท่าน</span></td>
+          <td class="num c-total" data-label="ยอดสุทธิ"><strong>${money(q.grand_total)}</strong></td>
+          <td class="c-status">${statusBadge(q.status)}</td>
+          <td class="nowrap muted small c-created">${thaiDate(q.created_at, 'short')}<br>${new Date(q.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.</td>
+          <td class="c-actions">
+            <div class="row-actions">
+              <a class="btn btn-sm" href="quote-view.html?id=${q.id}">ดู</a>
+              <a class="btn btn-sm" href="quote-edit.html?id=${q.id}">แก้ไข</a>
+              <button class="btn btn-sm" data-act="copy" data-id="${q.id}">ทำสำเนา</button>
+              <button class="btn btn-sm btn-danger" data-act="delete" data-id="${q.id}">ลบ</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    }
+
+    function renderPager() {
+      const pages = Math.max(Math.ceil(total / PAGE_SIZE), 1);
+      const from = total ? page * PAGE_SIZE + 1 : 0;
+      const to = Math.min((page + 1) * PAGE_SIZE, total);
+      $('#pager').innerHTML = `
+        <span class="muted small">แสดง ${num(from)}–${num(to)} จาก ${num(total)} รายการ</span>
+        <div class="actions">
+          <button class="btn btn-sm" data-page="prev" ${page === 0 ? 'disabled' : ''}>‹ ก่อนหน้า</button>
+          <span class="small">หน้า ${page + 1} / ${pages}</span>
+          <button class="btn btn-sm" data-page="next" ${page + 1 >= pages ? 'disabled' : ''}>ถัดไป ›</button>
+        </div>`;
+    }
+
+    function resetAndLoad() {
+      page = 0;
+      loadQuotes();
+    }
+
+    function bindEvents() {
+      $('#search').addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(resetAndLoad, 350);
+      });
+      ['#statusFilter', '#sourceFilter', '#dateFrom', '#dateTo', '#sortBy']
+        .forEach((sel) => $(sel).addEventListener('change', resetAndLoad));
+
+      $('#btnClear').addEventListener('click', () => {
+        ['#search', '#statusFilter', '#sourceFilter', '#dateFrom', '#dateTo'].forEach((sel) => { $(sel).value = ''; });
+        $('#sortBy').value = 'created';
+        resetAndLoad();
+      });
+
+      $('#btnRefresh').addEventListener('click', refresh);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') refresh();
+      });
+
+      $('#stats').addEventListener('click', (e) => {
+        const card = e.target.closest('[data-status]');
+        if (!card) return;
+        $('#statusFilter').value = $('#statusFilter').value === card.dataset.status ? '' : card.dataset.status;
+        resetAndLoad();
+      });
+
+      $('#pager').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-page]');
+        if (!btn || btn.disabled) return;
+        page += btn.dataset.page === 'next' ? 1 : -1;
+        loadQuotes();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+
+      $('#rows').addEventListener('click', onRowAction);
+    }
+
+    async function onRowAction(e) {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const q = quotes.find((x) => x.id === btn.dataset.id);
+      if (!q) return;
+
+      if (btn.dataset.act === 'delete') {
+        if (!confirm(`ลบ ${q.quote_no} (${q.customer_name}) ?\nการลบไม่สามารถย้อนกลับได้`)) return;
+        await withBusy(btn, async () => {
+          const { error } = await sb.from('quotations').delete().eq('id', q.id);
+          if (error) return showError(error);
+          toast(`ลบ ${q.quote_no} แล้ว`);
+          refresh();
+        });
+      }
+
+      if (btn.dataset.act === 'copy') {
+        await withBusy(btn, async () => {
+          const newId = await duplicateQuote(q.id);
+          if (newId) location.href = `quote-edit.html?id=${newId}`;
+        });
+      }
+    }
+
+    async function duplicateQuote(id) {
+      const { data, error } = await sb
+        .from('quotations')
+        .select('*, quotation_items(*)')
+        .eq('id', id)
+        .single();
+      if (error) return showError(error);
+
+      const {
+        quotation_items: items, id: _id, quote_no, access_token, source,
+        created_at, updated_at, created_by, ...rest
+      } = data;
+      const payload = {
+        ...rest,
+        status: 'draft',
+        valid_until: isoDate(Number(settings?.valid_days) || 30),
+      };
+      const sortedItems = [...items].sort((a, b) => a.sort_order - b.sort_order);
+
+      const res = await sb.rpc('save_quotation', { p_quote: payload, p_items: sortedItems });
+      if (res.error) return showError(res.error);
+      toast('ทำสำเนาแล้ว');
+      return res.data;
+    }
+  </script>
+</body>
+</html>

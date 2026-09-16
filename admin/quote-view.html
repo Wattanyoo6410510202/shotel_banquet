@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>ใบเสนอราคา — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+</head>
+<body>
+  <div class="view-toolbar no-print">
+    <div class="actions">
+      <a class="btn btn-ghost" href="index.html">← กลับ</a>
+      <a class="btn" id="btnEdit" href="#">แก้ไข</a>
+      <a class="btn" id="btnCall" href="#" hidden>📞 โทร</a>
+      <button class="btn" id="btnCopyLink" type="button">🔗 คัดลอกลิงก์ลูกค้า</button>
+    </div>
+    <div class="actions">
+      <label class="check small">สถานะ <select id="statusSelect"></select></label>
+      <button class="btn btn-primary" type="button" onclick="window.print()">🖨 พิมพ์ / บันทึก PDF</button>
+    </div>
+  </div>
+
+  <div class="view-info no-print" id="info" hidden></div>
+
+  <div class="paper-wrap">
+    <article class="paper" id="paper">
+      <div class="empty">กำลังโหลด...</div>
+    </article>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script src="../assets/js/quote-render.js?v=24"></script>
+  <script>
+    (async () => {
+      const session = await requireAuth();
+      renderHeader('quotes', session);
+
+      const id = qs('id');
+      if (!id) {
+        $('#paper').innerHTML = '<div class="empty">ไม่ได้ระบุใบเสนอราคา</div>';
+        return;
+      }
+
+      try {
+        const [settings, res] = await Promise.all([
+          loadSettings(),
+          sb.from('quotations').select('*, quotation_items(*)').eq('id', id).maybeSingle(),
+        ]);
+        if (res.error) throw res.error;
+        if (!res.data) {
+          $('#paper').innerHTML = '<div class="empty">ไม่พบใบเสนอราคานี้</div>';
+          return;
+        }
+        render(settings, res.data);
+      } catch (err) {
+        showError(err);
+      }
+    })();
+
+    function render(s, q) {
+      document.title = `${q.quote_no} ${q.customer_name}`; // ใช้เป็นชื่อไฟล์ตอนบันทึก PDF
+      $('#btnEdit').href = `quote-edit.html?id=${q.id}`;
+
+      if (q.phone) {
+        $('#btnCall').href = `tel:${q.phone}`;
+        $('#btnCall').hidden = false;
+      }
+
+      $('#btnCopyLink').onclick = async () => {
+        const link = customerLink(q.access_token);
+        try {
+          await navigator.clipboard.writeText(link);
+          toast('คัดลอกลิงก์แล้ว ส่งให้ลูกค้าได้เลย');
+        } catch {
+          window.prompt('คัดลอกลิงก์นี้ส่งให้ลูกค้า', link);
+        }
+      };
+
+      const sel = $('#statusSelect');
+      sel.innerHTML = statusOptions(q.status);
+      sel.onchange = async () => {
+        const { error } = await sb.from('quotations').update({ status: sel.value }).eq('id', q.id);
+        if (error) {
+          sel.value = q.status;
+          return showError(error);
+        }
+        q.status = sel.value;
+        toast(`เปลี่ยนสถานะเป็น "${STATUS[q.status]}" แล้ว`);
+      };
+
+      $('#info').hidden = false;
+      $('#info').innerHTML = `
+        <div class="info-line">
+          ${q.source === 'web' ? '🌐 ลูกค้าส่งจากหน้าเว็บ' : '👤 พนักงานสร้าง'}
+          · บันทึกเมื่อ ${thaiDate(q.created_at)} ${new Date(q.created_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+          · แก้ไขล่าสุด ${thaiDate(q.updated_at)} ${new Date(q.updated_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })} น.
+        </div>
+        ${q.status === 'new' ? '<div class="info-alert">🔔 คำขอใหม่ — ตรวจสอบรายการ แล้วกด "แก้ไข" เพื่อปรับราคา/ห้อง หรือเปลี่ยนสถานะ</div>' : ''}
+        ${q.internal_note ? `<div class="internal-note"><strong>หมายเหตุภายใน (ลูกค้าไม่เห็น):</strong> ${esc(q.internal_note)}</div>` : ''}`;
+
+      $('#paper').innerHTML = renderQuotationHtml(s, q, q.quotation_items, { preliminary: false });
+    }
+  </script>
+</body>
+</html>

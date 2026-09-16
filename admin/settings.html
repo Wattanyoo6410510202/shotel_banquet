@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>ตั้งค่า — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+  <style>
+    .logo-preview { max-height: 64px; max-width: 160px; object-fit: contain; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <form id="settingsForm">
+      <div class="page-head">
+        <div>
+          <h1>ตั้งค่า</h1>
+          <div class="muted">ข้อมูลโรงแรมและค่าเริ่มต้นที่ใช้ในใบเสนอราคา</div>
+        </div>
+        <button class="btn btn-primary" type="submit" id="btnSave">บันทึกการตั้งค่า</button>
+      </div>
+
+      <section class="card">
+        <h2>ข้อมูลโรงแรม / บริษัท</h2>
+        <div class="grid-2">
+          <label class="field"><span class="req">ชื่อ (ไทย)</span><input name="company_name" required></label>
+          <label class="field"><span>ชื่อ (อังกฤษ)</span><input name="company_name_en"></label>
+          <label class="field span-2"><span>ที่อยู่</span><textarea name="address" rows="2"></textarea></label>
+          <label class="field"><span>เลขประจำตัวผู้เสียภาษี</span><input name="tax_id"></label>
+          <label class="field"><span>โทรศัพท์</span><input name="phone"></label>
+          <label class="field"><span>อีเมล</span><input name="email" type="email"></label>
+          <label class="field">
+            <span>URL โลโก้</span>
+            <input name="logo_url" type="url" placeholder="https://...">
+            <img class="logo-preview" id="logoPreview" alt="" hidden>
+          </label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>ค่าเริ่มต้นของใบเสนอราคาใหม่</h2>
+        <div class="grid-3">
+          <label class="field"><span>ค่าบริการ (%)</span><input name="service_charge_pct" type="number" min="0" step="0.01"></label>
+          <label class="field"><span>ภาษีมูลค่าเพิ่ม (%)</span><input name="vat_pct" type="number" min="0" step="0.01"></label>
+          <label class="field"><span>ใบเสนอราคามีผล (วัน)</span><input name="valid_days" type="number" min="1" step="1"></label>
+        </div>
+        <p class="muted small">ใส่ 0 หากต้องการแสดงราคาแบบ net (ไม่บวกค่าบริการ / VAT) — แก้ไขได้รายใบในหน้าสร้างใบเสนอราคา</p>
+      </section>
+
+      <section class="card">
+        <h2>เงื่อนไข (แสดงท้ายใบเสนอราคาทุกใบ)</h2>
+        <label class="field">
+          <textarea name="terms" rows="7" aria-label="เงื่อนไข"></textarea>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>หน้าบ้าน (หน้าที่ลูกค้าเห็น)</h2>
+        <label class="check">
+          <input type="checkbox" name="accept_requests">
+          <span><strong>เปิดรับคำขอใบเสนอราคาจากลูกค้า</strong>
+            <span class="muted small">— ถ้าปิด ลูกค้าจะเห็นข้อความให้ติดต่อโรงแรมโดยตรง</span></span>
+        </label>
+        <label class="field" style="margin-top:12px">
+          <span>ข้อความต้อนรับ (แสดงด้านบนของหน้าบ้าน)</span>
+          <textarea name="welcome_text" rows="2"></textarea>
+        </label>
+        <p class="small"><a href="../index.html" target="_blank" rel="noopener">เปิดดูหน้าบ้าน ↗</a></p>
+      </section>
+    </form>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    const TEXT_FIELDS = ['company_name', 'company_name_en', 'address', 'tax_id', 'phone', 'email', 'logo_url', 'terms', 'welcome_text'];
+    const NUM_FIELDS = ['service_charge_pct', 'vat_pct', 'valid_days'];
+
+    (async () => {
+      const session = await requireAuth();
+      renderHeader('settings', session);
+      const form = $('#settingsForm');
+
+      try {
+        const s = await loadSettings();
+        [...TEXT_FIELDS, ...NUM_FIELDS].forEach((f) => { form.elements[f].value = s[f] ?? ''; });
+        form.elements.accept_requests.checked = s.accept_requests !== false;
+        updateLogo();
+      } catch (err) {
+        showError(err);
+      }
+
+      form.elements.logo_url.addEventListener('change', updateLogo);
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        withBusy($('#btnSave'), async () => {
+          const payload = {};
+          TEXT_FIELDS.forEach((f) => { payload[f] = form.elements[f].value.trim() || null; });
+          payload.company_name = payload.company_name || '';
+          payload.service_charge_pct = Math.max(Number(form.elements.service_charge_pct.value) || 0, 0);
+          payload.vat_pct = Math.max(Number(form.elements.vat_pct.value) || 0, 0);
+          payload.valid_days = Math.max(parseInt(form.elements.valid_days.value, 10) || 30, 1);
+          payload.accept_requests = form.elements.accept_requests.checked;
+
+          const { error } = await sb.from('settings').update(payload).eq('id', 1);
+          if (error) return showError(error);
+          toast('บันทึกการตั้งค่าแล้ว');
+        });
+      });
+
+      function updateLogo() {
+        const url = form.elements.logo_url.value.trim();
+        const img = $('#logoPreview');
+        img.hidden = !url;
+        if (url) img.src = url;
+      }
+    })();
+  </script>
+</body>
+</html>

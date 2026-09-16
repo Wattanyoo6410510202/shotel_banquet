@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>แพ็กเกจอาหาร — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+  <style>
+    .pkg-layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .pkg-layout { grid-template-columns: 1fr; } }
+
+    .pkg-list-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; cursor: pointer;
+    }
+    .pkg-list-row:hover { border-color: var(--brand); }
+    .pkg-list-row.active { border-color: var(--brand); background: var(--brand-soft); }
+    .pkg-list-row .name { font-weight: 600; }
+    .pkg-list-row .sub { font-size: .78rem; color: var(--muted); }
+    .pkg-list-row.inactive .name { color: var(--muted); }
+
+    .course-row { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+    .course-head { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; }
+    .course-head input[type=number] { text-align: center; }
+    .course-items { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .course-item-chip {
+      display: inline-flex; align-items: center; gap: 6px; background: var(--hover);
+      border-radius: 999px; padding: 3px 6px 3px 12px; font-size: .82rem;
+    }
+    .course-item-chip button { border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px; }
+    .course-item-chip button:hover { color: var(--danger); }
+    .course-empty { font-size: .82rem; color: var(--muted); margin-top: 8px; }
+
+    .picker-cat { font-size: .78rem; font-weight: 700; color: var(--accent-ink); text-transform: uppercase; margin: 12px 0 4px; }
+    .picker-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+    .picker-row label { flex: 1; cursor: pointer; }
+    .picker-row .muted { font-size: .78rem; }
+
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+
+    .image-field { display: flex; gap: 12px; align-items: flex-start; }
+    .image-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); background: var(--hover); flex: none; }
+    .image-field .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .image-field input[type=file] { font-size: .85rem; }
+    .pkg-list-row img.row-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; margin-right: 4px; }
+  </style>
+</head>
+<body>
+  <main class="container wide">
+    <div class="page-head">
+      <div>
+        <h1>แพ็กเกจอาหาร</h1>
+        <div class="muted">จัดการชุดโต๊ะจีน / ชุดไทย ที่ให้ลูกค้าเลือกเมนูแต่ละคอร์สเอง</div>
+      </div>
+      <button class="btn btn-primary" id="btnNewPkg" type="button">+ เพิ่มแพ็กเกจ</button>
+    </div>
+
+    <div class="pkg-layout">
+      <!-- ---------- รายการแพ็กเกจ ---------- -->
+      <section class="card">
+        <div class="card-head"><h2>แพ็กเกจทั้งหมด</h2></div>
+        <div id="pkgList"><div class="empty">กำลังโหลด...</div></div>
+      </section>
+
+      <!-- ---------- รายละเอียด / คอร์ส ---------- -->
+      <section class="card" id="detailCard">
+        <div class="empty-state" id="detailEmpty">เลือกแพ็กเกจทางซ้าย หรือกด "+ เพิ่มแพ็กเกจ" เพื่อเริ่มต้น</div>
+        <div id="detailBody" hidden>
+          <div class="card-head">
+            <h2 id="detailName">—</h2>
+            <div class="actions">
+              <button class="btn btn-sm" id="btnEditPkg" type="button">แก้ไขข้อมูลแพ็กเกจ</button>
+              <button class="btn btn-sm btn-danger" id="btnDeletePkg" type="button">ลบแพ็กเกจ</button>
+            </div>
+          </div>
+          <p class="muted small" id="detailMeta"></p>
+
+          <div class="card-head" style="margin-top:8px">
+            <h3>คอร์ส / หมวดในแพ็กเกจ</h3>
+            <button class="btn btn-sm" id="btnAddCourse" type="button">+ เพิ่มคอร์ส</button>
+          </div>
+          <div id="courseList"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ---------- Dialog: เพิ่ม/แก้ไขแพ็กเกจ ---------- -->
+  <dialog id="pkgDialog">
+    <form id="pkgForm" method="dialog">
+      <div class="dialog-head">
+        <h2 id="pkgDialogTitle">เพิ่มแพ็กเกจ</h2>
+        <button type="button" class="icon-btn" data-close>✕</button>
+      </div>
+      <div class="dialog-body">
+        <div class="grid-2">
+          <label class="field span-2"><span class="req">ชื่อแพ็กเกจ</span><input name="name" required placeholder="เช่น โต๊ะจีน 4,500"></label>
+          <label class="field span-2"><span>ชื่อ (อังกฤษ)</span><input name="name_en"></label>
+          <label class="field span-2"><span>คำอธิบาย</span><textarea name="description" rows="2"></textarea></label>
+          <div class="field span-2">
+            <span>รูปภาพแพ็กเกจ</span>
+            <div class="image-field">
+              <img id="pkgImagePreview" class="image-preview" alt="" hidden>
+              <div class="col">
+                <input type="file" id="pkgImageFile" accept="image/png,image/jpeg,image/webp,image/gif">
+                <input name="image_url" id="pkgImageUrl" type="url" placeholder="https://... (หรืออัปโหลดไฟล์ด้านบน)">
+                <span class="muted small" id="pkgImageStatus"></span>
+              </div>
+            </div>
+          </div>
+          <label class="field"><span class="req">ราคา (บาท)</span><input name="price" type="number" min="0" step="0.01" required></label>
+          <label class="field"><span class="req">หน่วย</span><input name="unit" list="pkgUnitList" required value="โต๊ะ"></label>
+          <label class="field"><span>เสิร์ฟได้ (ท่าน)</span><input name="serves" type="number" min="1" step="1" placeholder="เช่น 10"></label>
+          <label class="field"><span>ลำดับการแสดง</span><input name="sort_order" type="number" step="1" value="0"></label>
+          <label class="check span-2"><input type="checkbox" name="per_person">
+            คิดราคาต่อท่าน <span class="muted small">(ปกติแพ็กเกจคิดราคาต่อโต๊ะ/ชุด ไม่ติ๊กช่องนี้)</span></label>
+          <label class="check span-2"><input type="checkbox" name="is_active" checked> เปิดใช้งาน (แสดงในหน้าเว็บ)</label>
+        </div>
+        <datalist id="pkgUnitList"><option value="โต๊ะ"><option value="ชุด"><option value="ท่าน"></datalist>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary" id="btnSavePkg">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ---------- Dialog: เลือกเมนูสำหรับคอร์ส ---------- -->
+  <dialog id="itemPickerDialog">
+    <div class="dialog-head">
+      <h2>เลือกเมนูในคอร์ส "<span id="pickerCourseName"></span>"</h2>
+      <button type="button" class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="dialog-body">
+      <input type="search" id="pickerSearch" placeholder="🔍 ค้นหาเมนู..." style="margin-bottom:8px">
+      <div id="pickerList"></div>
+    </div>
+    <div class="dialog-foot">
+      <span class="muted small" id="pickerCount" style="margin-right:auto"></span>
+      <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
+      <button type="button" class="btn btn-primary" id="btnSavePicker">บันทึก</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    let packages = [];
+    let categories = [];
+    let menuItems = [];
+    let selectedPkgId = null;
+    let editingPkgId = null;
+    let pickerCourseId = null;
+    let pickerChecked = new Set(); // menu_item_id ที่ติ๊กอยู่ในไดอะล็อกเลือกเมนู (ยังไม่บันทึก)
+
+    (async () => {
+      const session = await requireAuth();
+      renderHeader('packages', session);
+      bindEvents();
+      try {
+        await Promise.all([loadPackages(), loadCategories(), loadItems()]);
+        renderPkgList();
+      } catch (err) {
+        showError(err);
+      }
+    })();
+
+    /* ---------------- Load ---------------- */
+    async function loadPackages() {
+      const { data, error } = await sb
+        .from('menu_packages')
+        .select('*, menu_package_courses(*, menu_package_course_items(*, menu_items(id, name, name_en, category_id)))')
+        .order('sort_order').order('id');
+      if (error) throw error;
+      packages = data.map((p) => ({
+        ...p,
+        courses: (p.menu_package_courses || [])
+          .sort((a, b) => a.sort_order - b.sort_order)
+          .map((c) => ({
+            ...c,
+            items: (c.menu_package_course_items || [])
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((ci) => ({ course_item_id: ci.id, menu_item_id: ci.menu_item_id, ...ci.menu_items })),
+          })),
+      }));
+    }
+
+    async function loadCategories() {
+      const { data, error } = await sb.from('menu_categories').select('*').order('sort_order').order('name');
+      if (error) throw error;
+      categories = data;
+    }
+
+    async function loadItems() {
+      const { data, error } = await sb.from('menu_items').select('id, name, name_en, category_id').order('sort_order').order('name');
+      if (error) throw error;
+      menuItems = data;
+    }
+
+    function findPkg(id) { return packages.find((p) => p.id === id); }
+
+    /* ---------------- Render: รายการแพ็กเกจ ---------------- */
+    function renderPkgList() {
+      if (!packages.length) {
+        $('#pkgList').innerHTML = '<div class="empty small">ยังไม่มีแพ็กเกจ</div>';
+      } else {
+        $('#pkgList').innerHTML = packages.map((p) => `
+          <div class="pkg-list-row ${p.id === selectedPkgId ? 'active' : ''} ${p.is_active ? '' : 'inactive'}" data-id="${p.id}">
+            <div style="display:flex; align-items:center; min-width:0">
+              ${p.image_url ? `<img class="row-thumb" src="${esc(p.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+              <div>
+                <div class="name">${esc(p.name)}</div>
+                <div class="sub">฿${money0(p.price)}/${esc(p.unit)} · ${p.courses.length} คอร์ส ${p.is_active ? '' : '· ปิดใช้งาน'}</div>
+              </div>
+            </div>
+          </div>`).join('');
+      }
+      renderDetail();
+    }
+
+    /* ---------------- Render: รายละเอียดแพ็กเกจที่เลือก ---------------- */
+    function renderDetail() {
+      const pkg = findPkg(selectedPkgId);
+      $('#detailEmpty').hidden = !!pkg;
+      $('#detailBody').hidden = !pkg;
+      if (!pkg) return;
+
+      $('#detailName').textContent = pkg.name;
+      $('#detailMeta').textContent =
+        `฿${money(pkg.price)} / ${pkg.unit}${pkg.per_person ? ' (ต่อท่าน)' : ''}` +
+        (pkg.serves ? ` · เสิร์ฟได้ ~${num(pkg.serves)} ท่าน` : '') +
+        (pkg.is_active ? '' : ' · ปิดใช้งานอยู่ (ลูกค้าไม่เห็น)');
+
+      $('#courseList').innerHTML = pkg.courses.length
+        ? pkg.courses.map(courseHtml).join('')
+        : '<p class="muted small">ยังไม่มีคอร์ส — กด "+ เพิ่มคอร์ส" เพื่อเริ่มกำหนดเมนูให้เลือก</p>';
+    }
+
+    function courseHtml(c) {
+      return `
+        <div class="course-row" data-course="${c.id}">
+          <div class="course-head">
+            <input data-cf="name" value="${esc(c.name)}" placeholder="ชื่อคอร์ส เช่น อาหารผัด, รายการที่ 1">
+            <label class="small muted" style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+              เลือก <input data-cf="pick_count" type="number" min="1" step="1" value="${c.pick_count}" style="width:56px"> อย่าง
+            </label>
+            <div class="row-actions">
+              <button type="button" class="btn btn-sm" data-add-items="${c.id}">+ เมนู</button>
+              <button type="button" class="icon-btn" data-del-course="${c.id}" title="ลบคอร์สนี้">✕</button>
+            </div>
+          </div>
+          ${c.items.length ? `
+            <div class="course-items">
+              ${c.items.map((it) => `
+                <span class="course-item-chip">${esc(it.name)}
+                  <button type="button" data-del-item="${it.course_item_id}" title="เอาออก">✕</button>
+                </span>`).join('')}
+            </div>` : '<div class="course-empty">ยังไม่มีเมนูในคอร์สนี้</div>'}
+        </div>`;
+    }
+
+    /* ---------------- แพ็กเกจ: เพิ่ม/แก้ไข/ลบ ---------------- */
+    function openPkgDialog(pkg) {
+      const form = $('#pkgForm');
+      form.reset();
+      editingPkgId = pkg?.id ?? null;
+      $('#pkgDialogTitle').textContent = pkg ? 'แก้ไขแพ็กเกจ' : 'เพิ่มแพ็กเกจ';
+      const d = pkg || { name: '', name_en: '', description: '', price: '', unit: 'โต๊ะ', serves: '', sort_order: 0, per_person: false, is_active: true };
+      ['name', 'name_en', 'description', 'price', 'unit', 'serves', 'sort_order', 'image_url'].forEach((f) => { form.elements[f].value = d[f] ?? ''; });
+      form.elements.per_person.checked = !!d.per_person;
+      form.elements.is_active.checked = d.is_active !== false;
+      $('#pkgImageStatus').textContent = '';
+      updatePkgImagePreview();
+      $('#pkgDialog').showModal();
+      form.elements.name.focus();
+    }
+
+    /* ---------------- รูปภาพแพ็กเกจ (Supabase Storage) ---------------- */
+    function updatePkgImagePreview() {
+      const url = $('#pkgImageUrl').value.trim();
+      const img = $('#pkgImagePreview');
+      img.hidden = !url;
+      if (url) img.src = url;
+    }
+
+    async function uploadPkgImage(file) {
+      if (file.size > 5 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 5MB', 'error'); return null; }
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `packages/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await sb.storage.from('menu-images').upload(path, file, { cacheControl: '31536000', upsert: false });
+      if (error) { showError(error); return null; }
+      return sb.storage.from('menu-images').getPublicUrl(path).data.publicUrl;
+    }
+
+    async function savePkg() {
+      const f = $('#pkgForm').elements;
+      const payload = {
+        name: f.name.value.trim(),
+        name_en: f.name_en.value.trim() || null,
+        description: f.description.value.trim() || null,
+        price: Math.max(Number(f.price.value) || 0, 0),
+        unit: f.unit.value.trim() || 'โต๊ะ',
+        serves: f.serves.value ? Math.max(parseInt(f.serves.value, 10), 1) : null,
+        sort_order: parseInt(f.sort_order.value, 10) || 0,
+        image_url: f.image_url.value.trim() || null,
+        per_person: f.per_person.checked,
+        is_active: f.is_active.checked,
+      };
+      const query = editingPkgId
+        ? sb.from('menu_packages').update(payload).eq('id', editingPkgId)
+        : sb.from('menu_packages').insert(payload).select().single();
+      const { data, error } = await query;
+      if (error) return showError(error);
+
+      $('#pkgDialog').close();
+      await loadPackages();
+      if (!editingPkgId && data) selectedPkgId = data.id;
+      renderPkgList();
+      toast(editingPkgId ? 'บันทึกแพ็กเกจแล้ว' : 'เพิ่มแพ็กเกจแล้ว');
+    }
+
+    async function deletePkg(id) {
+      const pkg = findPkg(id);
+      if (!confirm(`ลบแพ็กเกจ "${pkg.name}" ทั้งหมด (รวมคอร์สและเมนูในนั้น) ?\nใบเสนอราคาเดิมที่เคยใช้แพ็กเกจนี้ไม่ได้รับผลกระทบ`)) return;
+      const { error } = await sb.from('menu_packages').delete().eq('id', id);
+      if (error) return showError(error);
+      if (selectedPkgId === id) selectedPkgId = null;
+      await loadPackages();
+      renderPkgList();
+      toast('ลบแพ็กเกจแล้ว');
+    }
+
+    /* ---------------- คอร์ส: เพิ่ม/แก้ไข/ลบ ---------------- */
+    async function addCourse() {
+      const pkg = findPkg(selectedPkgId);
+      const maxSort = pkg.courses.reduce((m, c) => Math.max(m, c.sort_order), -1);
+      const { error } = await sb.from('menu_package_courses').insert({
+        package_id: pkg.id, name: `คอร์สที่ ${pkg.courses.length + 1}`, pick_count: 1, sort_order: maxSort + 1,
+      });
+      if (error) return showError(error);
+      await loadPackages();
+      renderPkgList();
+    }
+
+    async function saveCourseField(row) {
+      const id = Number(row.dataset.course);
+      const pkg = findPkg(selectedPkgId);
+      const course = pkg.courses.find((c) => c.id === id);
+      const name = $('[data-cf="name"]', row).value.trim();
+      const pickCount = Math.max(parseInt($('[data-cf="pick_count"]', row).value, 10) || 1, 1);
+      if (!name) { $('[data-cf="name"]', row).value = course.name; return; }
+      if (name === course.name && pickCount === course.pick_count) return;
+
+      const { error } = await sb.from('menu_package_courses').update({ name, pick_count: pickCount }).eq('id', id);
+      if (error) return showError(error);
+      await loadPackages();
+      renderPkgList();
+      toast('บันทึกคอร์สแล้ว');
+    }
+
+    async function deleteCourse(id) {
+      if (!confirm('ลบคอร์สนี้ออกจากแพ็กเกจ?')) return;
+      const { error } = await sb.from('menu_package_courses').delete().eq('id', id);
+      if (error) return showError(error);
+      await loadPackages();
+      renderPkgList();
+      toast('ลบคอร์สแล้ว');
+    }
+
+    async function removeCourseItem(courseItemId) {
+      const { error } = await sb.from('menu_package_course_items').delete().eq('id', courseItemId);
+      if (error) return showError(error);
+      await loadPackages();
+      renderPkgList();
+    }
+
+    /* ---------------- เลือกเมนูในคอร์ส (dialog) ---------------- */
+    function openItemPicker(courseId) {
+      const pkg = findPkg(selectedPkgId);
+      const course = pkg.courses.find((c) => c.id === courseId);
+      pickerCourseId = courseId;
+      pickerChecked = new Set(course.items.map((it) => it.menu_item_id));
+      $('#pickerCourseName').textContent = course.name;
+      $('#pickerSearch').value = '';
+      renderPickerList();
+      $('#itemPickerDialog').showModal();
+    }
+
+    function renderPickerList() {
+      const term = $('#pickerSearch').value.trim().toLowerCase();
+      const visible = menuItems.filter((m) => !term || [m.name, m.name_en].some((v) => (v || '').toLowerCase().includes(term)));
+      const groups = [...categories, { id: null, name: 'ไม่มีหมวด' }]
+        .map((c) => ({ name: c.name, items: visible.filter((m) => m.category_id === c.id) }))
+        .filter((g) => g.items.length);
+
+      $('#pickerList').innerHTML = groups.length ? groups.map((g) => `
+        <div class="picker-cat">${esc(g.name)}</div>
+        ${g.items.map((m) => `
+          <div class="picker-row">
+            <label><input type="checkbox" data-picker-item="${m.id}" ${pickerChecked.has(m.id) ? 'checked' : ''}> ${esc(m.name)}
+              ${m.name_en ? `<span class="muted">(${esc(m.name_en)})</span>` : ''}</label>
+          </div>`).join('')}
+      `).join('') : '<p class="muted small">ไม่พบเมนูที่ค้นหา</p>';
+      $('#pickerCount').textContent = `เลือกแล้ว ${pickerChecked.size} รายการ`;
+    }
+
+    async function savePickerSelection() {
+      const pkg = findPkg(selectedPkgId);
+      const course = pkg.courses.find((c) => c.id === pickerCourseId);
+      const existingIds = new Set(course.items.map((it) => it.menu_item_id));
+      const toAdd = [...pickerChecked].filter((id) => !existingIds.has(id));
+      const toRemove = course.items.filter((it) => !pickerChecked.has(it.menu_item_id));
+
+      if (toAdd.length) {
+        const maxSort = course.items.reduce((m, it) => Math.max(m, it.sort_order ?? 0), -1);
+        const rows = toAdd.map((menu_item_id, i) => ({ course_id: course.id, menu_item_id, sort_order: maxSort + 1 + i }));
+        const { error } = await sb.from('menu_package_course_items').insert(rows);
+        if (error) return showError(error);
+      }
+      if (toRemove.length) {
+        const { error } = await sb.from('menu_package_course_items').delete().in('id', toRemove.map((it) => it.course_item_id));
+        if (error) return showError(error);
+      }
+
+      $('#itemPickerDialog').close();
+      await loadPackages();
+      renderPkgList();
+      toast('บันทึกเมนูในคอร์สแล้ว');
+    }
+
+    /* ---------------- Events ---------------- */
+    function bindEvents() {
+      $('#btnNewPkg').addEventListener('click', () => openPkgDialog(null));
+      $('#btnEditPkg').addEventListener('click', () => openPkgDialog(findPkg(selectedPkgId)));
+      $('#btnDeletePkg').addEventListener('click', () => deletePkg(selectedPkgId));
+      $('#btnAddCourse').addEventListener('click', () => withBusy($('#btnAddCourse'), addCourse));
+
+      $('#pkgList').addEventListener('click', (e) => {
+        const row = e.target.closest('.pkg-list-row');
+        if (!row) return;
+        selectedPkgId = Number(row.dataset.id);
+        renderPkgList();
+      });
+
+      $('#courseList').addEventListener('change', (e) => {
+        const row = e.target.closest('.course-row');
+        if (row && e.target.matches('[data-cf]')) saveCourseField(row);
+      });
+      $('#courseList').addEventListener('click', (e) => {
+        const addBtn = e.target.closest('[data-add-items]');
+        const delCourseBtn = e.target.closest('[data-del-course]');
+        const delItemBtn = e.target.closest('[data-del-item]');
+        if (addBtn) openItemPicker(Number(addBtn.dataset.addItems));
+        if (delCourseBtn) deleteCourse(Number(delCourseBtn.dataset.delCourse));
+        if (delItemBtn) removeCourseItem(Number(delItemBtn.dataset.delItem));
+      });
+
+      $('#pkgForm').addEventListener('submit', (e) => { e.preventDefault(); withBusy($('#btnSavePkg'), savePkg); });
+      $$('[data-close]', $('#pkgDialog')).forEach((b) => b.addEventListener('click', () => $('#pkgDialog').close()));
+
+      $('#pkgImageUrl').addEventListener('input', updatePkgImagePreview);
+      $('#pkgImageFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        $('#pkgImageStatus').textContent = 'กำลังอัปโหลด...';
+        const url = await uploadPkgImage(file);
+        $('#pkgImageStatus').textContent = '';
+        if (url) {
+          $('#pkgImageUrl').value = url;
+          updatePkgImagePreview();
+          toast('อัปโหลดรูปภาพแล้ว — กด "บันทึก" เพื่อบันทึกแพ็กเกจ');
+        }
+      });
+
+      $('#pickerSearch').addEventListener('input', renderPickerList);
+      $('#pickerList').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-picker-item]');
+        if (!el) return;
+        const id = Number(el.dataset.pickerItem);
+        if (el.checked) pickerChecked.add(id); else pickerChecked.delete(id);
+        $('#pickerCount').textContent = `เลือกแล้ว ${pickerChecked.size} รายการ`;
+      });
+      $('#btnSavePicker').addEventListener('click', () => withBusy($('#btnSavePicker'), savePickerSelection));
+      $$('[data-close]', $('#itemPickerDialog')).forEach((b) => b.addEventListener('click', () => $('#itemPickerDialog').close()));
+    }
+  </script>
+</body>
+</html>

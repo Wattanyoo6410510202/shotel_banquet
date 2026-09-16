@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>เข้าสู่ระบบหลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="card login-card">
+      <img class="brand-logo" src="../assets/img/logo.png?v=24" alt="">
+      <h1>เข้าสู่ระบบหลังบ้าน</h1>
+      <p class="muted">สำหรับพนักงานฝ่ายจัดเลี้ยง</p>
+
+      <form id="loginForm">
+        <label class="field">
+          <span>อีเมล</span>
+          <input type="email" name="email" autocomplete="username" required autofocus>
+        </label>
+        <label class="field">
+          <span>รหัสผ่าน</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <div class="form-error" id="formError"></div>
+        <button class="btn btn-primary" type="submit" id="btnLogin">เข้าสู่ระบบ</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    document.body.appendChild(themeToggleButton('on-light corner-toggle'));
+
+    (async () => {
+      const next = safeNext(qs('next'));
+      const { data: { session } } = await sb.auth.getSession();
+      if (session) return location.replace(next);
+
+      const form = $('#loginForm');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        $('#formError').textContent = '';
+        await withBusy($('#btnLogin'), async () => {
+          const { error } = await sb.auth.signInWithPassword({
+            email: form.email.value.trim(),
+            password: form.password.value,
+          });
+          if (error) {
+            $('#formError').textContent = error.message === 'Invalid login credentials'
+              ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
+              : errorMessage(error);
+            return;
+          }
+          location.replace(next);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

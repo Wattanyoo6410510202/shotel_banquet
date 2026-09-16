@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex">
+  <title>เมนูอาหาร — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=24">
+  <style>
+    .menu-layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+    .cat-row { display: grid; grid-template-columns: 1fr 64px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .cat-row input { padding: 6px 8px; }
+    .cat-add { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .menu-layout > .card + .card { margin-top: 0; }
+    @media (max-width: 900px) {
+      .menu-layout { grid-template-columns: 1fr; }
+      .menu-layout > .items-card { order: -1; } /* มือถือ: รายการเมนูขึ้นก่อน หมวดหมู่ไว้ล่าง */
+    }
+    @media (max-width: 720px) {
+      #itemTable td.c-name { order: 1; }
+      #itemTable td.c-active { order: 2; text-align: right; }
+      #itemTable td.c-cat { order: 3; grid-column: 1 / -1; color: var(--muted); }
+      #itemTable td.c-price { order: 4; }
+      #itemTable td.c-unit { order: 5; text-align: right; }
+      #itemTable td.c-per { display: none; }
+      #itemTable td.c-actions { order: 6; grid-column: 1 / -1; }
+    }
+    .image-field { display: flex; gap: 12px; align-items: flex-start; }
+    .image-preview { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border); background: var(--hover); flex: none; }
+    .image-field .col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .image-field input[type=file] { font-size: .85rem; }
+    #itemRows img.row-thumb { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; vertical-align: middle; margin-right: 8px; }
+    #importPreview .stats { margin: 12px 0; }
+    #importPreview .err-list { max-height: 160px; overflow-y: auto; font-size: .82rem; color: var(--danger); background: var(--danger-soft); border-radius: 8px; padding: 8px 10px; }
+  </style>
+</head>
+<body>
+  <main class="container wide">
+    <div class="page-head">
+      <div>
+        <h1>เมนูอาหาร</h1>
+        <div class="muted">จัดการหมวดหมู่ เมนู และบริการเสริมที่ใช้ในใบเสนอราคา</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-sm" id="btnExportCsv" type="button">⬇ ส่งออก CSV</button>
+        <button class="btn btn-sm" id="btnImportCsv" type="button">⬆ นำเข้า CSV</button>
+        <button class="btn btn-primary" id="btnNewItem" type="button">+ เพิ่มเมนู</button>
+      </div>
+    </div>
+
+    <div class="menu-layout">
+      <!-- ---------- หมวดหมู่ ---------- -->
+      <section class="card">
+        <div class="card-head">
+          <h2>หมวดหมู่</h2>
+          <span class="muted small">ชื่อ / ลำดับ</span>
+        </div>
+        <div id="catList"><div class="empty">กำลังโหลด...</div></div>
+        <form class="cat-add" id="catAddForm">
+          <input name="name" placeholder="ชื่อหมวดหมู่ใหม่" required>
+          <button class="btn btn-primary" type="submit">เพิ่ม</button>
+        </form>
+      </section>
+
+      <!-- ---------- เมนู ---------- -->
+      <section class="card items-card">
+        <div class="toolbar">
+          <input type="search" id="search" placeholder="ค้นหาเมนู...">
+          <select id="catFilter"></select>
+          <label class="check small"><input type="checkbox" id="showInactive"> แสดงเมนูที่ปิดใช้งาน</label>
+          <span class="muted small" id="itemCount"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="table stack-sm" id="itemTable">
+            <thead>
+              <tr>
+                <th>เมนู</th>
+                <th>หมวดหมู่</th>
+                <th class="num">ราคา</th>
+                <th>หน่วย</th>
+                <th>คิดราคา</th>
+                <th>สถานะ</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="itemRows"><tr><td colspan="7" class="empty">กำลังโหลด...</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ---------- Dialog: เพิ่ม/แก้ไขเมนู ---------- -->
+  <dialog id="itemDialog">
+    <form id="itemForm" method="dialog">
+      <div class="dialog-head">
+        <h2 id="dialogTitle">เพิ่มเมนู</h2>
+        <button type="button" class="icon-btn" data-close>✕</button>
+      </div>
+      <div class="dialog-body">
+        <div class="grid-2">
+          <label class="field span-2"><span class="req">ชื่อเมนู (ไทย)</span><input name="name" required></label>
+          <label class="field span-2"><span>ชื่อเมนู (อังกฤษ)</span><input name="name_en"></label>
+          <label class="field span-2"><span>คำอธิบาย</span><textarea name="description" rows="2"></textarea></label>
+          <label class="field"><span>หมวดหมู่</span><select name="category_id" id="itemCategory"></select></label>
+          <label class="field"><span>ลำดับการแสดง</span><input name="sort_order" type="number" step="1" value="0"></label>
+          <label class="field"><span class="req">ราคา (บาท)</span><input name="price" type="number" min="0" step="0.01" required></label>
+          <label class="field"><span class="req">หน่วย</span><input name="unit" list="unitList" required value="ท่าน"></label>
+          <div class="field span-2">
+            <span>รูปภาพเมนู</span>
+            <div class="image-field">
+              <img id="itemImagePreview" class="image-preview" alt="" hidden>
+              <div class="col">
+                <input type="file" id="itemImageFile" accept="image/png,image/jpeg,image/webp,image/gif">
+                <input name="image_url" id="itemImageUrl" type="url" placeholder="https://... (หรืออัปโหลดไฟล์ด้านบน)">
+                <span class="muted small" id="itemImageStatus"></span>
+              </div>
+            </div>
+          </div>
+          <label class="check span-2"><input type="checkbox" name="per_person" checked>
+            คิดราคาต่อท่าน <span class="muted small">(จำนวนจะเท่ากับจำนวนแขกอัตโนมัติ)</span></label>
+          <label class="check span-2"><input type="checkbox" name="is_active" checked> เปิดใช้งาน (แสดงในหน้าเลือกเมนู)</label>
+        </div>
+        <datalist id="unitList">
+          <option value="ท่าน"><option value="ชุด"><option value="โต๊ะ"><option value="ถาด">
+          <option value="ตัว"><option value="ชิ้น"><option value="งาน"><option value="ถัง"><option value="กิโลกรัม">
+        </datalist>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveItem">บันทึก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ---------- Dialog: นำเข้าเมนูจาก CSV ---------- -->
+  <dialog id="importDialog">
+    <div class="dialog-head">
+      <h2>นำเข้าเมนูจากไฟล์ CSV</h2>
+      <button type="button" class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="small muted">
+        แนะนำให้กด "⬇ ส่งออก CSV" ก่อน เพื่อได้ไฟล์ตัวอย่างที่ถูกฟอร์แมตถูกต้อง แก้ไขราคา/ข้อมูลใน Excel แล้วนำกลับเข้ามาที่นี่<br>
+        คอลัมน์ที่ใช้: <code>id, category, name, name_en, description, price, unit, per_person, image_url, is_active, sort_order</code><br>
+        แถวที่มี <code>id</code> จะ<strong>แก้ไข</strong>รายการเดิม แถวที่ <code>id</code> ว่างจะ<strong>เพิ่มรายการใหม่</strong>
+        หมวดหมู่ที่ยังไม่มีในระบบจะถูกสร้างให้อัตโนมัติ
+      </p>
+      <label class="field"><span>เลือกไฟล์ CSV</span><input type="file" id="importFile" accept=".csv,text/csv"></label>
+      <div id="importPreview"></div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-ghost" data-close>ยกเลิก</button>
+      <button type="button" class="btn btn-primary" id="btnConfirmImport" disabled>ยืนยันนำเข้า</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=24"></script>
+  <script src="../assets/js/core.js?v=24"></script>
+  <script src="../assets/js/admin.js?v=24"></script>
+  <script>
+    let categories = [];
+    let items = [];
+    let editingId = null;
+
+    (async () => {
+      const session = await requireAuth();
+      renderHeader('menu', session);
+      bindEvents();
+      try {
+        await Promise.all([loadCategories(), loadItems()]);
+        renderAll();
+      } catch (err) {
+        showError(err);
+      }
+    })();
+
+    async function loadCategories() {
+      const { data, error } = await sb.from('menu_categories').select('*').order('sort_order').order('name');
+      if (error) throw error;
+      categories = data;
+    }
+
+    async function loadItems() {
+      const { data, error } = await sb.from('menu_items').select('*').order('sort_order').order('name');
+      if (error) throw error;
+      items = data;
+    }
+
+    function renderAll() {
+      renderCategories();
+      renderCategorySelects();
+      renderItems();
+    }
+
+    /* ---------------- Categories ---------------- */
+    function renderCategories() {
+      if (!categories.length) {
+        $('#catList').innerHTML = '<div class="empty small">ยังไม่มีหมวดหมู่</div>';
+        return;
+      }
+      $('#catList').innerHTML = categories.map((c) => `
+        <div class="cat-row" data-id="${c.id}">
+          <input data-f="name" value="${esc(c.name)}" aria-label="ชื่อหมวดหมู่">
+          <input data-f="sort_order" type="number" step="1" value="${c.sort_order}" aria-label="ลำดับ">
+          <button type="button" class="icon-btn" data-act="delete" title="ลบหมวดหมู่">✕</button>
+        </div>`).join('');
+    }
+
+    function renderCategorySelects() {
+      const current = $('#catFilter').value;
+      $('#catFilter').innerHTML = '<option value="">ทุกหมวดหมู่</option>'
+        + categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')
+        + '<option value="none">ไม่มีหมวด</option>';
+      $('#catFilter').value = current;
+
+      $('#itemCategory').innerHTML = '<option value="">— ไม่มีหมวด —</option>'
+        + categories.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    }
+
+    async function saveCategory(row) {
+      const id = Number(row.dataset.id);
+      const name = $('[data-f="name"]', row).value.trim();
+      const sortOrder = parseInt($('[data-f="sort_order"]', row).value, 10) || 0;
+      const cat = categories.find((c) => c.id === id);
+      if (!cat || !name || (cat.name === name && cat.sort_order === sortOrder)) {
+        if (!name && cat) $('[data-f="name"]', row).value = cat.name;
+        return;
+      }
+      const { error } = await sb.from('menu_categories').update({ name, sort_order: sortOrder }).eq('id', id);
+      if (error) return showError(error);
+      await loadCategories();
+      renderAll();
+      toast('บันทึกหมวดหมู่แล้ว');
+    }
+
+    async function deleteCategory(id) {
+      const cat = categories.find((c) => c.id === id);
+      const used = items.filter((i) => i.category_id === id).length;
+      const msg = used
+        ? `ลบหมวด "${cat.name}" ?\nเมนู ${used} รายการในหมวดนี้จะถูกย้ายไป "ไม่มีหมวด"`
+        : `ลบหมวด "${cat.name}" ?`;
+      if (!confirm(msg)) return;
+      const { error } = await sb.from('menu_categories').delete().eq('id', id);
+      if (error) return showError(error);
+      await Promise.all([loadCategories(), loadItems()]);
+      renderAll();
+      toast('ลบหมวดหมู่แล้ว');
+    }
+
+    /* ---------------- Items ---------------- */
+    function renderItems() {
+      const term = $('#search').value.trim().toLowerCase();
+      const cat = $('#catFilter').value;
+      const showInactive = $('#showInactive').checked;
+      const catName = (id) => categories.find((c) => c.id === id)?.name;
+      const catRank = new Map(categories.map((c, i) => [c.id, i]));
+
+      const list = items
+        .filter((m) => {
+          if (!showInactive && !m.is_active) return false;
+          if (cat === 'none' && m.category_id != null) return false;
+          if (cat && cat !== 'none' && String(m.category_id) !== cat) return false;
+          if (!term) return true;
+          return [m.name, m.name_en, m.description].some((v) => (v || '').toLowerCase().includes(term));
+        })
+        .sort((a, b) => (catRank.get(a.category_id) ?? 1e9) - (catRank.get(b.category_id) ?? 1e9)
+          || a.sort_order - b.sort_order);
+
+      $('#itemCount').textContent = `${list.length} รายการ`;
+
+      if (!list.length) {
+        $('#itemRows').innerHTML = `<tr><td colspan="7" class="empty">${items.length ? 'ไม่พบเมนูที่ค้นหา' : 'ยังไม่มีเมนู'}</td></tr>`;
+        return;
+      }
+
+      $('#itemRows').innerHTML = list.map((m) => `
+        <tr class="${m.is_active ? '' : 'inactive'}">
+          <td class="c-name">
+            ${m.image_url ? `<img class="row-thumb" src="${esc(m.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+            <strong>${esc(m.name)}</strong>
+            ${m.name_en ? `<div class="muted small">${esc(m.name_en)}</div>` : ''}
+          </td>
+          <td class="small c-cat">${esc(catName(m.category_id) || '—')}</td>
+          <td class="num c-price" data-label="ราคา"><strong>${money(m.price)}</strong></td>
+          <td class="c-unit" data-label="หน่วย">${esc(m.unit)}${m.per_person ? ' <span class="muted small show-sm">(ต่อท่าน)</span>' : ''}</td>
+          <td class="small c-per">${m.per_person ? 'ต่อท่าน' : 'ต่อหน่วย'}</td>
+          <td class="c-active">${m.is_active
+            ? '<span class="badge st-confirmed">เปิด</span>'
+            : '<span class="badge">ปิด</span>'}</td>
+          <td class="c-actions">
+            <div class="row-actions">
+              <button class="btn btn-sm" data-act="toggle" data-id="${m.id}">${m.is_active ? 'ปิดใช้งาน' : 'เปิดใช้งาน'}</button>
+              <button class="btn btn-sm" data-act="edit" data-id="${m.id}">แก้ไข</button>
+              <button class="btn btn-sm btn-danger" data-act="delete" data-id="${m.id}">ลบ</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    }
+
+    function openItemDialog(item) {
+      const form = $('#itemForm');
+      form.reset();
+      editingId = item?.id ?? null;
+      $('#dialogTitle').textContent = item ? 'แก้ไขเมนู' : 'เพิ่มเมนู';
+
+      const defaults = {
+        name: '', name_en: '', description: '', category_id: $('#catFilter').value.replace('none', ''),
+        sort_order: 0, price: '', unit: 'ท่าน', image_url: '', per_person: true, is_active: true,
+      };
+      const data = item || defaults;
+      ['name', 'name_en', 'description', 'sort_order', 'price', 'unit', 'image_url'].forEach((f) => {
+        form.elements[f].value = data[f] ?? '';
+      });
+      form.elements.category_id.value = data.category_id ?? '';
+      form.elements.per_person.checked = !!data.per_person;
+      form.elements.is_active.checked = !!data.is_active;
+      $('#itemImageStatus').textContent = '';
+      updateImagePreview();
+
+      $('#itemDialog').showModal();
+      form.elements.name.focus();
+    }
+
+    /* ---------------- รูปภาพ (Supabase Storage) ---------------- */
+    function updateImagePreview() {
+      const url = $('#itemImageUrl').value.trim();
+      const img = $('#itemImagePreview');
+      img.hidden = !url;
+      if (url) img.src = url;
+    }
+
+    async function uploadMenuImage(file) {
+      if (file.size > 5 * 1024 * 1024) { toast('ไฟล์ใหญ่เกิน 5MB', 'error'); return null; }
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `items/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await sb.storage.from('menu-images').upload(path, file, { cacheControl: '31536000', upsert: false });
+      if (error) { showError(error); return null; }
+      return sb.storage.from('menu-images').getPublicUrl(path).data.publicUrl;
+    }
+
+    async function saveItem() {
+      const f = $('#itemForm').elements;
+      const payload = {
+        name: f.name.value.trim(),
+        name_en: f.name_en.value.trim() || null,
+        description: f.description.value.trim() || null,
+        category_id: f.category_id.value ? Number(f.category_id.value) : null,
+        sort_order: parseInt(f.sort_order.value, 10) || 0,
+        price: Math.max(Number(f.price.value) || 0, 0),
+        unit: f.unit.value.trim() || 'ท่าน',
+        image_url: f.image_url.value.trim() || null,
+        per_person: f.per_person.checked,
+        is_active: f.is_active.checked,
+      };
+
+      const query = editingId
+        ? sb.from('menu_items').update(payload).eq('id', editingId)
+        : sb.from('menu_items').insert(payload);
+      const { error } = await query;
+      if (error) return showError(error);
+
+      $('#itemDialog').close();
+      await loadItems();
+      renderItems();
+      toast(editingId ? 'บันทึกเมนูแล้ว' : 'เพิ่มเมนูแล้ว');
+    }
+
+    /* ---------------- CSV: ส่งออก / นำเข้า ---------------- */
+    const CSV_COLUMNS = ['id', 'category', 'name', 'name_en', 'description', 'price', 'unit', 'per_person', 'image_url', 'is_active', 'sort_order'];
+
+    function csvCell(v) {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    function exportCsv() {
+      const catName = (id) => categories.find((c) => c.id === id)?.name || '';
+      const rows = items.map((m) => [
+        m.id, catName(m.category_id), m.name, m.name_en || '', m.description || '',
+        m.price, m.unit, m.per_person ? 1 : 0, m.image_url || '', m.is_active ? 1 : 0, m.sort_order,
+      ]);
+      const csv = '﻿' + [CSV_COLUMNS, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `เมนูอาหาร-${isoDate(0)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // แปลง CSV -> แถว[คอลัมน์] รองรับ field ที่ครอบด้วย "..." (มีจุลภาค/ขึ้นบรรทัดใหม่/เครื่องหมาย " ซ้อนได้)
+    function parseCsv(text) {
+      const rows = [];
+      let row = [], field = '', inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+          else field += ch;
+        } else if (ch === '"') inQuotes = true;
+        else if (ch === ',') { row.push(field); field = ''; }
+        else if (ch === '\r') { /* ข้าม */ }
+        else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+        else field += ch;
+      }
+      if (field !== '' || row.length) { row.push(field); rows.push(row); }
+      return rows.filter((r) => r.some((c) => c !== ''));
+    }
+
+    let pendingImportRows = null;
+
+    async function handleImportFile(file) {
+      const text = await file.text();
+      const rows = parseCsv(text.replace(/^﻿/, ''));
+      if (rows.length < 2) return toast('ไฟล์ว่างเปล่า หรือไม่มีข้อมูล', 'error');
+
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const idx = {};
+      CSV_COLUMNS.forEach((c) => { idx[c] = header.indexOf(c); });
+      if (idx.name < 0 || idx.price < 0) return toast('ไฟล์ต้องมีคอลัมน์ name และ price อย่างน้อย', 'error');
+
+      const parsed = rows.slice(1)
+        .map((r) => {
+          const o = {};
+          CSV_COLUMNS.forEach((c) => { if (idx[c] >= 0) o[c] = (r[idx[c]] ?? '').trim(); });
+          return o;
+        })
+        .filter((o) => o.name); // ข้ามแถวว่าง
+
+      if (!parsed.length) return toast('ไม่พบแถวข้อมูล', 'error');
+
+      pendingImportRows = parsed;
+      $('#importPreview').innerHTML = `
+        <p>พบ <strong>${parsed.length}</strong> แถว (จะเพิ่มใหม่ ${parsed.filter((r) => !r.id).length} · แก้ไข ${parsed.filter((r) => r.id).length})</p>
+        <p class="muted small">กด "ยืนยันนำเข้า" เพื่อบันทึกจริง — ระบบจะรายงานแถวที่ผิดพลาดให้หลังนำเข้าเสร็จ (แถวอื่นจะไม่ได้รับผลกระทบ)</p>`;
+      $('#btnConfirmImport').disabled = false;
+    }
+
+    async function confirmImport() {
+      if (!pendingImportRows) return;
+      const { data, error } = await sb.rpc('import_menu_items', { p_rows: pendingImportRows });
+      if (error) return showError(error);
+
+      $('#importDialog').close();
+      await Promise.all([loadCategories(), loadItems()]);
+      renderAll();
+
+      const parts = [];
+      if (data.inserted) parts.push(`เพิ่มใหม่ ${data.inserted} รายการ`);
+      if (data.updated) parts.push(`แก้ไข ${data.updated} รายการ`);
+      toast(parts.length ? `นำเข้าสำเร็จ: ${parts.join(', ')}` : 'ไม่มีรายการที่นำเข้าสำเร็จ', data.inserted || data.updated ? 'ok' : 'error');
+
+      if (data.errors?.length) {
+        const list = data.errors.slice(0, 20).map((e) => `แถวที่ ${e.row}: ${esc(e.message)}`).join('<br>');
+        $('#importPreview').innerHTML = `
+          <p style="color:var(--danger)"><strong>ข้าม ${data.errors.length} แถว:</strong></p>
+          <div class="err-list">${list}${data.errors.length > 20 ? `<br>...และอีก ${data.errors.length - 20} รายการ` : ''}</div>`;
+        $('#importDialog').showModal(); // เปิดใหม่ให้เห็นรายการผิดพลาด
+      }
+    }
+
+    /* ---------------- Events ---------------- */
+    function bindEvents() {
+      $('#btnNewItem').addEventListener('click', () => openItemDialog(null));
+      $('#search').addEventListener('input', renderItems);
+      $('#catFilter').addEventListener('change', renderItems);
+      $('#showInactive').addEventListener('change', renderItems);
+
+      $('#catAddForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const input = e.target.elements.name;
+        const name = input.value.trim();
+        if (!name) return;
+        const maxSort = categories.reduce((m, c) => Math.max(m, c.sort_order), 0);
+        const { error } = await sb.from('menu_categories').insert({ name, sort_order: maxSort + 10 });
+        if (error) return showError(error);
+        input.value = '';
+        await loadCategories();
+        renderAll();
+        toast('เพิ่มหมวดหมู่แล้ว');
+      });
+
+      $('#catList').addEventListener('change', (e) => {
+        const row = e.target.closest('.cat-row');
+        if (row) saveCategory(row);
+      });
+      $('#catList').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-act="delete"]');
+        if (btn) deleteCategory(Number(btn.closest('.cat-row').dataset.id));
+      });
+
+      $('#itemRows').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn) return;
+        const item = items.find((m) => m.id === Number(btn.dataset.id));
+        if (!item) return;
+
+        if (btn.dataset.act === 'edit') openItemDialog(item);
+
+        if (btn.dataset.act === 'toggle') {
+          await withBusy(btn, async () => {
+            const { error } = await sb.from('menu_items').update({ is_active: !item.is_active }).eq('id', item.id);
+            if (error) return showError(error);
+            item.is_active = !item.is_active;
+          });
+          renderItems();
+        }
+
+        if (btn.dataset.act === 'delete') {
+          if (!confirm(`ลบเมนู "${item.name}" ?\n(ใบเสนอราคาเดิมไม่ได้รับผลกระทบ — หรือเลือก "ปิดใช้งาน" แทนได้)`)) return;
+          const { error } = await sb.from('menu_items').delete().eq('id', item.id);
+          if (error) return showError(error);
+          items = items.filter((m) => m.id !== item.id);
+          renderItems();
+          toast('ลบเมนูแล้ว');
+        }
+      });
+
+      $('#itemForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        withBusy($('#btnSaveItem'), saveItem);
+      });
+      $$('[data-close]', $('#itemDialog')).forEach((b) => b.addEventListener('click', () => $('#itemDialog').close()));
+
+      $('#itemImageUrl').addEventListener('input', updateImagePreview);
+      $('#itemImageFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        $('#itemImageStatus').textContent = 'กำลังอัปโหลด...';
+        const url = await uploadMenuImage(file);
+        $('#itemImageStatus').textContent = '';
+        if (url) {
+          $('#itemImageUrl').value = url;
+          updateImagePreview();
+          toast('อัปโหลดรูปภาพแล้ว — กด "บันทึก" เพื่อบันทึกเมนู');
+        }
+      });
+
+      $('#btnExportCsv').addEventListener('click', () => withBusy($('#btnExportCsv'), exportCsv));
+      $('#btnImportCsv').addEventListener('click', () => {
+        $('#importFile').value = '';
+        $('#importPreview').innerHTML = '';
+        $('#btnConfirmImport').disabled = true;
+        pendingImportRows = null;
+        $('#importDialog').showModal();
+      });
+      $('#importFile').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) handleImportFile(file);
+      });
+      $('#btnConfirmImport').addEventListener('click', () => withBusy($('#btnConfirmImport'), confirmImport));
+      $$('[data-close]', $('#importDialog')).forEach((b) => b.addEventListener('click', () => $('#importDialog').close()));
+    }
+  </script>
+</body>
+</html>

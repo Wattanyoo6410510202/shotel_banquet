@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="assets/img/logo.png?v=24">
+  <link rel="apple-touch-icon" href="assets/img/logo.png?v=24">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>ใบเสนอราคาของคุณ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css?v=24">
+  <link rel="stylesheet" href="assets/css/front.css?v=24">
+</head>
+<body class="front">
+  <header class="front-hero compact">
+    <div class="front-wrap">
+      <div class="hero-top" id="heroTop">
+        <a class="hero-brand" href="index.html" style="text-decoration:none">
+          <img id="heroLogo" src="assets/img/logo.png?v=24" alt="">
+          <div>
+            <div class="hero-name" id="companyName">&nbsp;</div>
+            <div class="hero-sub">บริการจัดเลี้ยง</div>
+          </div>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="front-wrap no-print" style="padding-top:16px">
+    <div id="banner" class="success-banner" hidden></div>
+    <div class="card notice" id="message">กำลังโหลด...</div>
+
+    <div class="request-bar" id="requestBar" hidden>
+      <div>สถานะ: <span id="statusBadge"></span></div>
+      <div class="actions">
+        <button class="btn" type="button" id="btnCopy">🔗 คัดลอกลิงก์</button>
+        <button class="btn btn-primary" type="button" onclick="window.print()">🖨 พิมพ์ / บันทึก PDF</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="paper-wrap" id="paperWrap" hidden>
+    <article class="paper" id="paper"></article>
+  </div>
+
+  <main class="front-wrap no-print" style="padding-block:8px 40px; text-align:center">
+    <a class="btn btn-ghost" href="index.html">+ ส่งคำขอใบเสนอราคาใหม่</a>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=24"></script>
+  <script src="assets/js/core.js?v=24"></script>
+  <script src="assets/js/quote-render.js?v=24"></script>
+  <script>
+    $('#heroTop').appendChild(themeToggleButton());
+
+    (async () => {
+      const token = qs('t') || '';
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) return notFound();
+
+      const { data, error } = await sb.rpc('get_request_by_token', { p_token: token });
+      if (error) {
+        console.error(error);
+        return notFound(errorMessage(error));
+      }
+      if (!data) return notFound();
+
+      const { quote: q, items, settings: s } = data;
+      const shareUrl = `${location.origin}${location.pathname}?t=${token}`;
+
+      if (s.company_name) $('#companyName').textContent = s.company_name;
+      if (s.logo_url) $('#heroLogo').src = s.logo_url;
+      document.title = `${q.quote_no} — ใบเสนอราคา ${s.company_name || ''}`.trim();
+
+      if (qs('new')) {
+        $('#banner').hidden = false;
+        $('#banner').innerHTML = `
+          <h2>✅ ส่งคำขอเรียบร้อยแล้ว</h2>
+          <div>เลขที่คำขอ <strong>${esc(q.quote_no)}</strong> — เจ้าหน้าที่จะติดต่อกลับที่เบอร์ <strong>${esc(formatPhone(q.phone))}</strong> โดยเร็วที่สุด</div>
+          <div class="small" style="margin-top:6px">💡 กด "คัดลอกลิงก์" หรือบันทึกหน้านี้ไว้ เพื่อกลับมาดูสถานะและใบเสนอราคาฉบับล่าสุดได้</div>`;
+        history.replaceState(null, '', shareUrl);
+      }
+
+      $('#message').hidden = true;
+      if (q.status === 'cancelled') {
+        $('#message').hidden = false;
+        $('#message').innerHTML = '<p>คำขอนี้ถูกยกเลิกแล้ว หากต้องการข้อมูลเพิ่มเติม กรุณาติดต่อโรงแรม</p>';
+      }
+
+      $('#requestBar').hidden = false;
+      $('#statusBadge').innerHTML = statusBadge(q.status, STATUS_CUSTOMER);
+
+      $('#btnCopy').addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          toast('คัดลอกลิงก์แล้ว');
+        } catch {
+          window.prompt('คัดลอกลิงก์นี้เก็บไว้', shareUrl);
+        }
+      });
+
+      const preliminary = !['sent', 'confirmed'].includes(q.status);
+      $('#paper').innerHTML = renderQuotationHtml(s, q, items, { preliminary });
+      $('#paperWrap').hidden = false;
+    })();
+
+    function notFound(detail) {
+      $('#message').innerHTML = `
+        <div class="big">🔍</div>
+        <h2>ไม่พบคำขอใบเสนอราคา</h2>
+        <p class="muted">${esc(detail || 'ลิงก์อาจไม่ถูกต้อง กรุณาตรวจสอบลิงก์อีกครั้ง หรือติดต่อโรงแรม')}</p>`;
+    }
+  </script>
+</body>
+</html>
