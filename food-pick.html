@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="assets/img/logo.png?v=25">
+  <link rel="apple-touch-icon" href="assets/img/logo.png?v=25">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>เลือกเมนูอาหาร</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css?v=25">
+  <link rel="stylesheet" href="assets/css/front.css?v=25">
+  <style>
+    .front-main .card + .card { margin-top: 24px; }
+    #pkgForms .pkg-detail { gap: 20px; }
+    #pkgForms .pkg-item-grid { gap: 12px; }
+  </style>
+</head>
+<body class="front">
+  <header class="front-hero">
+    <div class="front-wrap">
+      <div class="hero-top" id="heroTop">
+        <div class="hero-brand">
+          <img id="heroLogo" src="assets/img/logo.png?v=25" alt="">
+          <div>
+            <div class="hero-name" id="companyName">&nbsp;</div>
+            <div class="hero-sub">บริการจัดเลี้ยง</div>
+          </div>
+        </div>
+      </div>
+      <h1 class="hero-title">เลือกเมนูอาหาร</h1>
+      <p class="hero-welcome" id="subTitle"></p>
+      <a href="sets.html" class="btn btn-sm btn-ghost" style="margin-top:10px" target="_blank" rel="noopener">ดูเซตอาหารแนะนำทั้งหมด ›</a>
+    </div>
+  </header>
+
+  <main class="front-wrap front-main">
+    <div class="card notice" id="message">กำลังโหลด...</div>
+
+    <div id="content" hidden>
+      <div class="card">
+        <dl class="event-recap" id="recap"></dl>
+      </div>
+
+      <div id="pkgForms"></div>
+
+      <div class="card" id="extraCard" hidden>
+        <h2 class="step-title" style="margin-top:0">เมนูเสริม (เลือกเพิ่มได้)</h2>
+        <div id="extraGroups"></div>
+      </div>
+
+      <div class="card">
+        <button type="button" class="btn btn-primary" id="btnSubmit" style="width:100%">ส่งรายการที่เลือก ✓</button>
+        <div class="field-error" id="submitError" style="text-align:center; margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="card notice" id="doneCard" hidden>
+      <div class="big">✅</div>
+      <h2>ส่งข้อมูลเรียบร้อยแล้ว</h2>
+      <p class="muted">ขอบคุณค่ะ เจ้าหน้าที่ได้รับรายการอาหารที่เลือกไว้แล้ว</p>
+      <div id="doneSummary"></div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=25"></script>
+  <script src="assets/js/core.js?v=25"></script>
+  <script>
+    $('#heroTop').appendChild(themeToggleButton());
+
+    const EXTRA_CATEGORIES = ['อาหารว่าง (Coffee Break)', 'เครื่องดื่ม'];
+
+    let link = null;
+    let token = '';
+    const pkgChoices = new Map(); // package_id -> Map(course_id -> Set(menu_item_id))
+    const pkgNotes = new Map();   // package_id -> string
+    let extraItems = [];          // เมนูเสริม (Coffee Break / เครื่องดื่ม) ที่เลือกเพิ่มได้นอกแพ็กเกจ
+    let extraCatById = new Map();
+    let extraById = new Map();
+    const extraSelection = new Map(); // menu_item_id -> qty
+
+    (async () => {
+      token = qs('t') || '';
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) return notFound();
+
+      const [linkRes, settingsRes, catRes, itemRes] = await Promise.all([
+        sb.rpc('get_pickup_link', { p_token: token }),
+        sb.rpc('get_public_settings'),
+        sb.from('menu_categories').select('id, name').in('name', EXTRA_CATEGORIES),
+        sb.from('menu_items')
+          .select('id, category_id, name, name_en, description, price, unit, per_person, image_url, sort_order')
+          .eq('is_active', true).order('sort_order').order('name'),
+      ]);
+      if (linkRes.error) return notFound(errorMessage(linkRes.error));
+      link = linkRes.data;
+
+      const extraCatIds = new Set((catRes.data || []).map((c) => c.id));
+      extraCatById = new Map((catRes.data || []).map((c) => [c.id, c.name]));
+      extraItems = (itemRes.data || []).filter((m) => extraCatIds.has(m.category_id));
+      extraById = new Map(extraItems.map((m) => [m.id, m]));
+
+      const s = settingsRes.data || {};
+      if (s.company_name) {
+        $('#companyName').textContent = s.company_name;
+        document.title = `เลือกเมนูอาหาร — ${s.company_name}`;
+      }
+      if (s.logo_url) {
+        const img = $('#heroLogo');
+        img.onerror = () => { img.onerror = null; img.src = DEFAULT_LOGO; };
+        img.src = s.logo_url;
+      }
+
+      $('#message').hidden = true;
+      $('#subTitle').textContent = link.event_name ? `สำหรับงาน ${link.event_name}` : '';
+      renderRecap();
+
+      if (link.status === 'submitted') {
+        showDone();
+        return;
+      }
+
+      $('#content').hidden = false;
+      renderPkgForms();
+      renderExtras();
+      bindEvents();
+    })();
+
+    function notFound(detail) {
+      $('#message').innerHTML = `
+        <div class="big">🔍</div>
+        <h2>ไม่พบลิงก์เลือกเมนู</h2>
+        <p class="muted">${esc(detail || 'ลิงก์อาจไม่ถูกต้อง กรุณาตรวจสอบลิงก์อีกครั้ง หรือติดต่อโรงแรม')}</p>`;
+    }
+
+    function renderRecap() {
+      const rows = [
+        ['เลขที่อ้างอิง', link.external_quote_no],
+        ['ชื่อผู้ติดต่อ', link.customer_name],
+        ['ชื่องาน', link.event_name],
+        ['วันที่จัดงาน', link.event_date ? thaiDate(link.event_date) : ''],
+        ['จำนวนแขก', link.guest_count ? `${num(link.guest_count)} ท่าน` : ''],
+      ].filter(([, v]) => v);
+      $('#recap').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+    }
+
+    function courseComplete(pkgId, courseId, pickCount) {
+      const set = pkgChoices.get(pkgId)?.get(courseId);
+      return (set?.size || 0) === pickCount;
+    }
+
+    function pkgComplete(pkg) {
+      return pkg.courses.every((c) => courseComplete(pkg.id, c.id, c.pick_count));
+    }
+
+    function renderPkgForms() {
+      $('#pkgForms').innerHTML = link.packages.map(pkgFormHtml).join('');
+    }
+
+    function pkgFormHtml(pkg) {
+      const chosen = pkgChoices.get(pkg.id) || new Map();
+      return `
+        <section class="card" data-pkg="${pkg.id}">
+          <div class="pkg-head">
+            <div>
+              <div class="pkg-name">${esc(pkg.name)}</div>
+              ${pkg.description ? `<div class="pkg-sub">${esc(pkg.description)}</div>` : ''}
+            </div>
+          </div>
+          <div class="pkg-detail">
+            ${pkg.courses.map((c) => {
+              const set = chosen.get(c.id) || new Set();
+              const multi = c.pick_count > 1;
+              const full = set.size >= c.pick_count;
+              return `
+                <div class="pkg-course">
+                  <div class="pkg-course-head">
+                    <span>${esc(c.name)}</span>
+                    <span class="pkg-course-count ${set.size === c.pick_count ? 'done' : ''}">เลือกแล้ว ${set.size}/${c.pick_count}</span>
+                  </div>
+                  <div class="pkg-item-grid">
+                    ${c.choices.map((ch) => {
+                      const checked = set.has(ch.menu_item_id);
+                      const disable = !checked && multi && full;
+                      const img = ch.image_url
+                        ? `<img src="${esc(ch.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
+                        : `<div class="pkg-item-noimg">🍽️</div>`;
+                      return `<label class="pkg-item-choice ${checked ? 'checked' : ''} ${disable ? 'disabled' : ''}">
+                        <input type="${multi ? 'checkbox' : 'radio'}" ${multi ? '' : `name="pkgc-${pkg.id}-${c.id}"`}
+                          data-pkg="${pkg.id}" data-course="${c.id}" data-item="${ch.menu_item_id}" data-pick="${c.pick_count}"
+                          ${checked ? 'checked' : ''} ${disable ? 'disabled' : ''}>
+                        ${img}
+                        <span class="pkg-item-name">${esc(ch.name)}</span>
+                        <span class="pkg-item-check">✓</span>
+                      </label>`;
+                    }).join('')}
+                  </div>
+                </div>`;
+            }).join('')}
+            <label class="field">
+              <span class="small muted">หมายเหตุสำหรับชุดนี้ (ถ้ามี)</span>
+              <textarea data-pkg-note="${pkg.id}" rows="2" maxlength="500" placeholder="เช่น ไม่ใส่ผักชี, เผ็ดน้อย">${esc(pkgNotes.get(pkg.id) || '')}</textarea>
+            </label>
+          </div>
+        </section>`;
+    }
+
+    function refreshPkgCard(pkgId) {
+      const pkg = link.packages.find((p) => p.id === pkgId);
+      const el = document.querySelector(`[data-pkg="${pkgId}"]`);
+      if (el && pkg) el.outerHTML = pkgFormHtml(pkg);
+    }
+
+    /* ---------------- เมนูเสริม (Coffee Break / เครื่องดื่ม) ---------------- */
+    function renderExtras() {
+      if (!extraItems.length) { $('#extraCard').hidden = true; return; }
+      $('#extraCard').hidden = false;
+      const groups = [...extraCatById.keys()]
+        .map((catId) => ({ name: extraCatById.get(catId), items: extraItems.filter((m) => m.category_id === catId) }))
+        .filter((g) => g.items.length);
+      $('#extraGroups').innerHTML = groups.map((g) => `
+        <h3 class="menu-cat-title">${esc(g.name)}</h3>
+        <div class="menu-grid">${g.items.map(extraItemHtml).join('')}</div>`).join('');
+    }
+
+    function extraItemHtml(m) {
+      const isSel = extraSelection.has(m.id);
+      const qty = extraSelection.get(m.id) || 0;
+      const g = Number(link.guest_count) || 0;
+      let control;
+      let calc = '';
+
+      if (!m.per_person && isSel) {
+        control = `
+          <div class="qty-stepper">
+            <button type="button" data-extra-qty="${m.id}" data-d="-1" aria-label="ลดจำนวน">−</button>
+            <span>${qty}</span>
+            <button type="button" data-extra-qty="${m.id}" data-d="1" aria-label="เพิ่มจำนวน">+</button>
+          </div>`;
+        calc = `× ${num(qty)} ${esc(m.unit)} = ฿${money0(m.price * qty)}`;
+      } else {
+        control = `<button type="button" class="btn btn-sm btn-primary btn-pick" data-extra-pick="${m.id}">
+          ${isSel ? '✓ เลือกแล้ว' : '+ เลือก'}</button>`;
+        if (isSel && g) calc = `× ${num(g)} ท่าน = ฿${money0(m.price * g)}`;
+      }
+
+      return `
+        <article class="dish ${isSel ? 'selected' : ''}" data-extra-id="${m.id}">
+          ${m.image_url ? `<img src="${esc(m.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+          <div class="dish-body">
+            <div class="dish-name">${esc(m.name)}</div>
+            ${m.description ? `<div class="dish-desc">${esc(m.description)}</div>` : ''}
+            <div class="dish-foot">
+              <div>
+                <div class="dish-price">฿${money0(m.price)} <small>/ ${esc(m.unit)}</small></div>
+                ${calc ? `<div class="dish-calc">${calc}</div>` : ''}
+              </div>
+              ${control}
+            </div>
+          </div>
+        </article>`;
+    }
+
+    function refreshExtraItem(id) {
+      const m = extraById.get(id);
+      const el = document.querySelector(`[data-extra-id="${id}"]`);
+      if (el && m) el.outerHTML = extraItemHtml(m);
+    }
+
+    function showDone() {
+      $('#content').hidden = true;
+      $('#doneCard').hidden = false;
+      const sels = link.selections || [];
+      const extras = link.extra_items || [];
+      const extrasHtml = extras.length ? `
+        <div class="card" style="text-align:left; margin-top:12px">
+          <div class="pkg-name">เมนูเสริม</div>
+          <div class="s-choices">${extras.map((x) => `${esc(x.name)} × ${num(x.qty)} ${esc(x.unit)}`).join('<br>')}</div>
+        </div>` : '';
+      $('#doneSummary').innerHTML = sels.map((s) => `
+        <div class="card" style="text-align:left; margin-top:12px">
+          <div class="pkg-name">${esc(s.package_name)}</div>
+          <div class="s-choices">${esc(s.description || '').split('\n').join('<br>')}</div>
+          ${s.note ? `<div class="s-choices"><em>หมายเหตุ: ${esc(s.note)}</em></div>` : ''}
+        </div>`).join('') + extrasHtml;
+    }
+
+    function bindEvents() {
+      $('#pkgForms').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-item]');
+        if (!el) return;
+        const pkgId = Number(el.dataset.pkg);
+        const courseId = Number(el.dataset.course);
+        const itemId = Number(el.dataset.item);
+        const pick = Number(el.dataset.pick);
+        if (!pkgChoices.has(pkgId)) pkgChoices.set(pkgId, new Map());
+        const courseMap = pkgChoices.get(pkgId);
+        let set = courseMap.get(courseId);
+        if (!set) { set = new Set(); courseMap.set(courseId, set); }
+
+        if (el.type === 'radio') {
+          set.clear(); set.add(itemId);
+        } else if (el.checked) {
+          if (set.size < pick) set.add(itemId);
+          else { el.checked = false; return; }
+        } else {
+          set.delete(itemId);
+        }
+        refreshPkgCard(pkgId);
+        $('#submitError').textContent = '';
+      });
+
+      $('#pkgForms').addEventListener('input', (e) => {
+        const noteEl = e.target.closest('[data-pkg-note]');
+        if (noteEl) pkgNotes.set(Number(noteEl.dataset.pkgNote), noteEl.value);
+      });
+
+      $('#extraGroups').addEventListener('click', (e) => {
+        const pick = e.target.closest('[data-extra-pick]');
+        const qtyBtn = e.target.closest('[data-extra-qty]');
+        let id;
+
+        if (pick) {
+          id = Number(pick.dataset.extraPick);
+          const m = extraById.get(id);
+          if (extraSelection.has(id) && m.per_person) extraSelection.delete(id);
+          else extraSelection.set(id, 1);
+        } else if (qtyBtn) {
+          id = Number(qtyBtn.dataset.extraQty);
+          const next = (extraSelection.get(id) || 0) + Number(qtyBtn.dataset.d);
+          if (next <= 0) extraSelection.delete(id);
+          else extraSelection.set(id, Math.min(next, 100));
+        } else {
+          return;
+        }
+        refreshExtraItem(id);
+      });
+
+      $('#btnSubmit').addEventListener('click', async (e) => {
+        const incomplete = link.packages.filter((p) => !pkgComplete(p));
+        if (incomplete.length) {
+          $('#submitError').textContent = `กรุณาเลือกเมนูให้ครบทุกชุด (เหลือ: ${incomplete.map((p) => p.name).join(', ')})`;
+          document.querySelector(`[data-pkg="${incomplete[0].id}"]`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+        await withBusy(e.currentTarget, async () => {
+          const p_selections = link.packages.map((pkg) => ({
+            package_id: pkg.id,
+            choices: [...(pkgChoices.get(pkg.id) || new Map())].flatMap(([courseId, set]) =>
+              [...set].map((itemId) => ({ course_id: courseId, menu_item_id: itemId }))),
+            note: pkgNotes.get(pkg.id) || '',
+          }));
+          const p_items = [...extraSelection].map(([menu_item_id, qty]) => ({ menu_item_id, qty }));
+          const { error } = await sb.rpc('submit_pickup_selection', { p_token: token, p_selections, p_items });
+          if (error) return showError(error);
+
+          const again = await sb.rpc('get_pickup_link', { p_token: token });
+          if (!again.error) link = again.data;
+          showDone();
+          toast('ส่งข้อมูลเรียบร้อยแล้ว');
+        }, 'กำลังส่ง...');
+      });
+    }
+  </script>
+</body>
+</html>

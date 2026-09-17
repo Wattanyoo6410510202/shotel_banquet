@@ -167,6 +167,34 @@ create table if not exists public.quotation_items (
 create index if not exists quotation_items_quote_idx on public.quotation_items(quotation_id);
 
 -- ---------------------------------------------------------------------
+-- ลิงก์เลือกอาหาร: สำหรับใบเสนอราคาที่มาจากระบบภายนอก (manage_banquet)
+-- พนักงานเลือกแพ็กเกจอาหารที่จะเปิดให้ลูกค้าเลือกได้ สร้างลิงก์ส่งให้ลูกค้า
+-- ลูกค้าเปิดลิงก์แล้วเห็นแค่ฟอร์มเลือกเมนูในแพ็กเกจที่กำหนดไว้เท่านั้น ไม่ใช่หน้าเว็บปกติทั้งหมด
+-- ผลลัพธ์เก็บแยกจากตาราง quotations เพราะไม่ใช่ใบเสนอราคาของระบบนี้ (แค่บันทึกว่าลูกค้าเลือกอะไร)
+-- ---------------------------------------------------------------------
+create table if not exists public.pickup_links (
+  id                 uuid primary key default gen_random_uuid(),
+  token              uuid not null default gen_random_uuid(),
+  external_quote_no  text,
+  customer_name      text not null,
+  phone              text,
+  event_name         text,
+  event_date         date,
+  guest_count        int,
+  package_ids        bigint[] not null default '{}',
+  note               text,
+  status             text not null default 'pending' check (status in ('pending', 'submitted')),
+  selections         jsonb,
+  extra_items        jsonb,
+  submitted_at       timestamptz,
+  created_by         uuid default auth.uid() references auth.users(id) on delete set null,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create unique index if not exists pickup_links_token_idx   on public.pickup_links(token);
+create index if not exists pickup_links_created_idx on public.pickup_links(created_at desc);
+
+-- ---------------------------------------------------------------------
 -- เลขที่เอกสารอัตโนมัติ: QT<YYMM>-0001 (รีเซ็ตทุกเดือน)
 -- ---------------------------------------------------------------------
 create table if not exists public.quote_counters (
@@ -218,6 +246,10 @@ create trigger trg_touch_settings before update on public.settings
 
 drop trigger if exists trg_touch_packages on public.menu_packages;
 create trigger trg_touch_packages before update on public.menu_packages
+  for each row execute function public.touch_updated_at();
+
+drop trigger if exists trg_touch_pickup_links on public.pickup_links;
+create trigger trg_touch_pickup_links before update on public.pickup_links
   for each row execute function public.touch_updated_at();
 
 -- =====================================================================
@@ -522,6 +554,193 @@ as $$
   where q.access_token = p_token;
 $$;
 
+-- ลูกค้าเปิดลิงก์เลือกอาหาร (จาก "สร้างลิงก์" ในหลังบ้าน) ดูรายละเอียด + แพ็กเกจที่เลือกได้
+create or replace function public.get_pickup_link(p_token uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  l public.pickup_links%rowtype;
+  v_pkgs jsonb;
+begin
+  select * into l from pickup_links where token = p_token;
+  if not found then
+    raise exception 'ลิงก์นี้ไม่ถูกต้อง หรืออาจถูกลบไปแล้ว';
+  end if;
+
+  select coalesce(jsonb_agg(pkg order by pkg.sort_order, pkg.id), '[]'::jsonb)
+    into v_pkgs
+    from (
+      select p.id, p.name, p.name_en, p.description, p.price, p.unit, p.per_person, p.serves,
+             p.image_url, p.sort_order,
+             (select coalesce(jsonb_agg(crs order by crs.sort_order, crs.id), '[]'::jsonb)
+                from (
+                  select c.id, c.name, c.pick_count, c.sort_order,
+                         (select coalesce(jsonb_agg(jsonb_build_object(
+                                'menu_item_id', m.id, 'name', m.name, 'name_en', m.name_en,
+                                'description', m.description, 'image_url', m.image_url
+                              ) order by ci.sort_order, ci.id), '[]'::jsonb)
+                            from menu_package_course_items ci
+                            join menu_items m on m.id = ci.menu_item_id
+                           where ci.course_id = c.id) as choices
+                    from menu_package_courses c
+                   where c.package_id = p.id
+                ) crs
+             ) as courses
+        from menu_packages p
+       where p.id = any(l.package_ids)
+    ) pkg;
+
+  return jsonb_build_object(
+    'external_quote_no', l.external_quote_no,
+    'customer_name',     l.customer_name,
+    'event_name',        l.event_name,
+    'event_date',        l.event_date,
+    'guest_count',       l.guest_count,
+    'note',              l.note,
+    'status',            l.status,
+    'selections',        l.selections,
+    'extra_items',       l.extra_items,
+    'packages',          v_pkgs
+  );
+end $$;
+
+-- ลูกค้าส่งรายการอาหารที่เลือกผ่านลิงก์
+--   p_selections: [{ package_id, choices:[{course_id, menu_item_id}], note }]
+--   p_items (ไม่บังคับ): เมนูเดี่ยวเพิ่มเติมนอกแพ็กเกจ เช่น Coffee Break / เครื่องดื่ม — [{ menu_item_id, qty }]
+-- เพิ่มพารามิเตอร์ p_items ทีหลัง (ของเดิมมีแค่ p_token, p_selections) — ต้อง drop ของเก่าก่อน ไม่งั้น create or replace
+-- จะกลายเป็นสร้างฟังก์ชันซ้อนอีกตัวแทนที่จะแทนที่ของเดิม
+drop function if exists public.submit_pickup_selection(uuid, jsonb);
+create or replace function public.submit_pickup_selection(p_token uuid, p_selections jsonb, p_items jsonb default '[]'::jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  l            public.pickup_links%rowtype;
+  v_sel_item   jsonb;
+  v_pkg_id     bigint;
+  pkg          menu_packages%rowtype;
+  v_course     record;
+  v_chosen_ids bigint[];
+  v_chosen_cnt int;
+  v_valid_cnt  int;
+  v_course_desc text;
+  v_desc_parts text[];
+  v_seen_pkgs  bigint[] := '{}';
+  v_final      jsonb := '[]'::jsonb;
+  v_item       jsonb;
+  v_item_id    bigint;
+  v_item_qty   numeric;
+  m            menu_items%rowtype;
+  v_items_final jsonb := '[]'::jsonb;
+begin
+  select * into l from pickup_links where token = p_token for update;
+  if not found then
+    raise exception 'ลิงก์นี้ไม่ถูกต้อง หรืออาจถูกลบไปแล้ว';
+  end if;
+  if l.status = 'submitted' then
+    raise exception 'ลิงก์นี้ถูกส่งข้อมูลไปแล้ว หากต้องการแก้ไข กรุณาติดต่อโรงแรม';
+  end if;
+
+  if jsonb_typeof(p_selections) is distinct from 'array' or jsonb_array_length(p_selections) = 0 then
+    raise exception 'กรุณาเลือกเมนูอย่างน้อย 1 ชุด';
+  end if;
+
+  for v_sel_item in select value from jsonb_array_elements(p_selections)
+  loop
+    v_pkg_id := case when v_sel_item->>'package_id' ~ '^\d{1,18}$' then (v_sel_item->>'package_id')::bigint end;
+    if v_pkg_id is null or not (v_pkg_id = any(l.package_ids)) then
+      raise exception 'แพ็กเกจที่เลือกไม่ได้อยู่ในลิงก์นี้';
+    end if;
+    if v_pkg_id = any(v_seen_pkgs) then
+      raise exception 'เลือกแพ็กเกจซ้ำ';
+    end if;
+    v_seen_pkgs := v_seen_pkgs || v_pkg_id;
+
+    select * into pkg from menu_packages where id = v_pkg_id;
+    if not found then
+      raise exception 'ไม่พบแพ็กเกจที่เลือก';
+    end if;
+
+    v_desc_parts := array[]::text[];
+
+    for v_course in
+      select c.id, c.name, c.pick_count
+        from menu_package_courses c
+       where c.package_id = pkg.id
+       order by c.sort_order, c.id
+    loop
+      select array_agg(distinct x.mid), count(distinct x.mid)
+        into v_chosen_ids, v_chosen_cnt
+        from (
+          select case when ch->>'menu_item_id' ~ '^\d{1,18}$' then (ch->>'menu_item_id')::bigint end as mid
+            from jsonb_array_elements(coalesce(v_sel_item->'choices', '[]'::jsonb)) ch
+           where (case when ch->>'course_id' ~ '^\d{1,18}$' then (ch->>'course_id')::bigint end) = v_course.id
+        ) x
+       where x.mid is not null;
+
+      if coalesce(v_chosen_cnt, 0) <> v_course.pick_count then
+        raise exception 'กรุณาเลือก "%" ในหมวด "%" ให้ครบ % อย่าง', pkg.name, v_course.name, v_course.pick_count;
+      end if;
+
+      select count(*) into v_valid_cnt
+        from menu_package_course_items ci
+       where ci.course_id = v_course.id and ci.menu_item_id = any(v_chosen_ids);
+      if v_valid_cnt <> v_chosen_cnt then
+        raise exception 'ตัวเลือกในหมวด "%" ไม่ถูกต้อง กรุณาโหลดหน้าใหม่แล้วเลือกอีกครั้ง', v_course.name;
+      end if;
+
+      select v_course.name || ': ' || string_agg(mi.name, ', ' order by mi.name)
+        into v_course_desc
+        from menu_items mi where mi.id = any(v_chosen_ids);
+      v_desc_parts := v_desc_parts || v_course_desc;
+    end loop;
+
+    v_final := v_final || jsonb_build_array(jsonb_build_object(
+      'package_id',   pkg.id,
+      'package_name', pkg.name,
+      'description',  array_to_string(v_desc_parts, E'\n'),
+      'note',         nullif(left(trim(coalesce(v_sel_item->>'note', '')), 500), '')
+    ));
+  end loop;
+
+  if array_length(v_seen_pkgs, 1) is distinct from array_length(l.package_ids, 1) then
+    raise exception 'กรุณาเลือกเมนูให้ครบทุกชุดที่กำหนดไว้';
+  end if;
+
+  -- เมนูเดี่ยวเพิ่มเติมนอกแพ็กเกจ (ไม่บังคับ) เช่น Coffee Break / เครื่องดื่ม — ต้องเป็นเมนูที่เปิดใช้งานอยู่จริง
+  for v_item in select value from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  loop
+    v_item_id := case when v_item->>'menu_item_id' ~ '^\d{1,18}$' then (v_item->>'menu_item_id')::bigint end;
+    if v_item_id is null then
+      continue;
+    end if;
+    select * into m from menu_items where id = v_item_id and is_active;
+    if not found then
+      raise exception 'เมนูที่เลือกไม่พร้อมให้บริการแล้ว กรุณาโหลดหน้าใหม่แล้วเลือกอีกครั้ง';
+    end if;
+    v_item_qty := case when v_item->>'qty' ~ '^\d{1,6}(\.\d+)?$' then (v_item->>'qty')::numeric else 1 end;
+    v_items_final := v_items_final || jsonb_build_array(jsonb_build_object(
+      'menu_item_id', m.id,
+      'name',         m.name,
+      'unit',         m.unit,
+      'per_person',   m.per_person,
+      'qty',          least(greatest(v_item_qty, 0.01), 9999)
+    ));
+  end loop;
+
+  update pickup_links
+     set selections = v_final, extra_items = v_items_final, status = 'submitted', submitted_at = now()
+   where id = l.id;
+
+  return jsonb_build_object('ok', true);
+end $$;
+
 -- ส่งออกใบเสนอราคาทั้งหมด (ทุกฟิลด์ + รายการอาหาร) ให้ระบบภายนอก (เว็บจัดเลี้ยงอีกเว็บ) ผ่าน API ของ Supabase เอง
 -- ต้องส่ง p_key ให้ตรงกับรหัสลับด้านล่างเท่านั้น ไม่งั้น error 'unauthorized'
 -- เรียกได้ทั้ง GET และ POST ที่ https://<project>.supabase.co/rest/v1/rpc/export_quotations (ดูตัวอย่างเรียกใช้ใน README.md)
@@ -548,6 +767,48 @@ begin
     order by quo.created_at desc
   ), '[]'::jsonb)
   from quotations quo;
+end;
+$$;
+
+-- ส่งออกข้อมูล "ลิงก์เลือกอาหาร" ทั้งหมด (สถานะ + รายการที่ลูกค้าเลือกแล้ว) ให้ระบบภายนอกดึงไปใช้
+-- ใช้รหัสลับเดียวกับ export_quotations (ทีมภายนอกที่ได้ p_key นี้แล้วเรียกได้ทั้ง 2 endpoint)
+create or replace function public.export_pickup_selections(p_key text)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_secret constant text := 'NNP3FB1CApxXNDuEDmkXG5NGwnhUe0zW'; -- หมุนรหัสลับได้: แก้ค่านี้แล้วรัน SQL นี้ใหม่บน Supabase
+begin
+  if p_key is distinct from v_secret then
+    raise exception 'unauthorized';
+  end if;
+
+  return coalesce(jsonb_agg(
+    jsonb_build_object(
+      'token',              l.token,
+      'external_quote_no',  l.external_quote_no,
+      'customer_name',      l.customer_name,
+      'phone',              l.phone,
+      'event_name',         l.event_name,
+      'event_date',         l.event_date,
+      'guest_count',        l.guest_count,
+      'note',               l.note,
+      'status',             l.status,
+      'packages',           (
+        select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name) order by p.id), '[]'::jsonb)
+          from menu_packages p where p.id = any(l.package_ids)
+      ),
+      'selections',         l.selections,
+      'extra_items',        l.extra_items,
+      'created_at',         l.created_at,
+      'submitted_at',       l.submitted_at
+    )
+    order by l.created_at desc
+  ), '[]'::jsonb)
+  from pickup_links l;
 end;
 $$;
 
@@ -804,32 +1065,42 @@ revoke execute on function public.get_public_packages()              from public
 revoke execute on function public.submit_request(jsonb, jsonb)       from public;
 revoke execute on function public.get_request_by_token(uuid)         from public;
 revoke execute on function public.export_quotations(text)            from public;
+revoke execute on function public.export_pickup_selections(text)     from public;
 revoke execute on function public.save_quotation(jsonb, jsonb)       from public, anon;
 revoke execute on function public.quotation_stats()                  from public, anon;
 revoke execute on function public.import_menu_items(jsonb)           from public, anon;
+revoke execute on function public.get_pickup_link(uuid)              from public;
+revoke execute on function public.submit_pickup_selection(uuid, jsonb, jsonb) from public;
 
 grant execute on function public.get_public_settings()        to anon, authenticated;
 grant execute on function public.get_public_packages()        to anon, authenticated;
 grant execute on function public.submit_request(jsonb, jsonb) to anon, authenticated;
 grant execute on function public.get_request_by_token(uuid)   to anon, authenticated;
 grant execute on function public.export_quotations(text)      to anon, authenticated;
+grant execute on function public.export_pickup_selections(text) to anon, authenticated;
 grant execute on function public.save_quotation(jsonb, jsonb) to authenticated;
 grant execute on function public.quotation_stats()            to authenticated;
 grant execute on function public.import_menu_items(jsonb)     to authenticated;
+grant execute on function public.get_pickup_link(uuid)             to anon, authenticated;
+grant execute on function public.submit_pickup_selection(uuid, jsonb, jsonb) to anon, authenticated;
 
 grant usage on schema public to anon, authenticated;
 
 revoke all on public.settings, public.quotations, public.quotation_items, public.quote_counters from anon;
 revoke all on public.menu_categories, public.menu_items from anon;
 revoke all on public.menu_packages, public.menu_package_courses, public.menu_package_course_items from anon;
+revoke all on public.pickup_links from anon;
 grant select on public.menu_categories, public.menu_items to anon;
 -- หมายเหตุ: แพ็กเกจฝั่งลูกค้าอ่านผ่าน get_public_packages() (security definer) ไม่ได้ให้สิทธิ์อ่านตารางตรงๆ
+-- pickup_links ก็เช่นกัน: ลูกค้าเข้าถึงได้เฉพาะผ่าน get_pickup_link()/submit_pickup_selection() เท่านั้น
+-- ห้าม grant select ตรงให้ anon เด็ดขาด เพราะแถวมี token + PII ของลูกค้าทุกคน
 
 grant select, update on public.settings to authenticated;
 grant select, insert, update, delete on public.menu_categories, public.menu_items,
   public.quotations, public.quotation_items to authenticated;
 grant select, insert, update, delete on public.menu_packages, public.menu_package_courses,
   public.menu_package_course_items to authenticated;
+grant select, insert, update, delete on public.pickup_links to authenticated;
 revoke all on public.quote_counters from authenticated;
 
 alter table public.settings         enable row level security;
@@ -841,6 +1112,7 @@ alter table public.menu_package_course_items enable row level security;
 alter table public.quotations       enable row level security;
 alter table public.quotation_items  enable row level security;
 alter table public.quote_counters   enable row level security;
+alter table public.pickup_links     enable row level security;
 
 -- ลูกค้า (anon): อ่านหมวดหมู่ และเมนูที่เปิดใช้งาน
 drop policy if exists "public read categories" on public.menu_categories;
@@ -875,3 +1147,6 @@ create policy "staff all package courses" on public.menu_package_courses for all
 
 drop policy if exists "staff all package course items" on public.menu_package_course_items;
 create policy "staff all package course items" on public.menu_package_course_items for all to authenticated using (true) with check (true);
+
+drop policy if exists "staff all pickup links" on public.pickup_links;
+create policy "staff all pickup links" on public.pickup_links for all to authenticated using (true) with check (true);

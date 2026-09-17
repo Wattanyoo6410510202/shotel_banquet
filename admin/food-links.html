@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="../assets/img/logo.png?v=25">
+  <link rel="apple-touch-icon" href="../assets/img/logo.png?v=25">
+  <meta name="robots" content="noindex">
+  <title>ลิงก์เลือกอาหาร — หลังบ้าน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/css/app.css?v=25">
+  <style>
+    .pick-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+    .pick-row:hover { border-color: var(--brand); }
+    .pick-row .name { font-weight: 600; }
+    .pick-row .sub { font-size: .78rem; color: var(--muted); }
+    .pkg-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+    .pkg-check-row label { flex: 1; cursor: pointer; }
+    .link-result[hidden] { display: none; }
+    .link-result { border: 1px dashed var(--brand); border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .link-result input { flex: 1; min-width: 200px; }
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="container wide">
+    <div class="page-head">
+      <div>
+        <h1>ลิงก์เลือกอาหาร</h1>
+        <div class="muted">สร้างลิงก์ให้ลูกค้าเลือกเมนูตามแพ็กเกจที่กำหนดไว้ แล้วดูผลที่ลูกค้าเลือก</div>
+      </div>
+      <button class="btn btn-primary" id="btnNew" type="button">+ สร้างลิงก์</button>
+    </div>
+
+    <section class="card">
+      <div class="table-wrap">
+        <table class="table stack-sm" id="linkTable">
+          <thead>
+            <tr>
+              <th>เลขที่อ้างอิง</th>
+              <th>ลูกค้า</th>
+              <th>งาน</th>
+              <th>แพ็กเกจ</th>
+              <th>สถานะ</th>
+              <th>สร้างเมื่อ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="7" class="empty">กำลังโหลด...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- ---------- Dialog: สร้างลิงก์ ---------- -->
+  <dialog id="newDialog">
+    <form id="newForm" method="dialog">
+      <div class="dialog-head">
+        <h2>สร้างลิงก์เลือกอาหาร</h2>
+        <button type="button" class="icon-btn" data-close>✕</button>
+      </div>
+      <div class="dialog-body">
+        <div class="card" style="margin-bottom:12px">
+          <div class="card-head">
+            <h3 style="margin:0">ดึงใบเสนอราคาจาก manage_banquet</h3>
+            <button type="button" class="btn btn-sm" id="btnFetchExternal">↻ ดึงรายชื่อ</button>
+          </div>
+          <div id="externalStatus" class="muted small">ยังไม่ได้ดึงข้อมูล</div>
+          <input type="search" id="externalSearch" placeholder="🔍 ค้นหาเลขที่ ชื่อลูกค้า ชื่องาน..." style="margin-top:8px" hidden>
+          <div id="externalList" style="margin-top:8px; max-height:220px; overflow:auto"></div>
+        </div>
+
+        <div class="grid-2">
+          <label class="field"><span>เลขที่อ้างอิง (manage_banquet)</span><input name="external_quote_no" placeholder="เช่น QT-20260704-1518"></label>
+          <label class="field"><span class="req">ชื่อผู้ติดต่อ</span><input name="customer_name" required></label>
+          <label class="field"><span>เบอร์โทรศัพท์</span><input name="phone" type="tel"></label>
+          <label class="field"><span>ชื่องาน</span><input name="event_name"></label>
+          <label class="field"><span>วันที่จัดงาน</span><input name="event_date" type="date"></label>
+          <label class="field"><span>จำนวนแขก</span><input name="guest_count" type="number" min="1" step="1"></label>
+          <label class="field span-2"><span>หมายเหตุ</span><textarea name="note" rows="2"></textarea></label>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <h3 style="margin-top:0">เลือกแพ็กเกจที่ให้ลูกค้าเลือกเมนูได้</h3>
+          <div id="pkgChecklist" class="muted small">กำลังโหลด...</div>
+        </div>
+
+        <div class="link-result" id="linkResult" hidden>
+          <span>✅ สร้างลิงก์แล้ว:</span>
+          <input type="text" id="linkResultUrl" readonly>
+          <button type="button" class="btn btn-sm" id="btnCopyResult">คัดลอก</button>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn btn-ghost" data-close>ปิด</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveNew">สร้างลิงก์</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ---------- Dialog: ดูผลลัพธ์ ---------- -->
+  <dialog id="resultDialog">
+    <div class="dialog-head">
+      <h2>ลูกค้าเลือกอะไรบ้าง</h2>
+      <button type="button" class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="dialog-body" id="resultBody"></div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-primary" data-close>ปิด</button>
+    </div>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../config.js?v=25"></script>
+  <script src="../assets/js/core.js?v=25"></script>
+  <script src="../assets/js/admin.js?v=25"></script>
+  <script>
+    let session = null;
+    let links = [];
+    let packages = [];
+    let checkedPkgIds = new Set();
+    let externalQuotes = [];
+
+    (async () => {
+      session = await requireAuth();
+      renderHeader('foodlinks', session);
+      bindEvents();
+      try {
+        // โหลดแพ็กเกจให้เสร็จก่อน เพราะ renderRows() (ที่ loadLinks เรียกต่อท้าย) ต้องใช้ชื่อแพ็กเกจ
+        // ถ้าโหลดพร้อมกันด้วย Promise.all แล้ว loadLinks เสร็จก่อน packages จะยังว่างตอน render ครั้งแรก
+        await loadPackages();
+        await loadLinks();
+      } catch (err) {
+        showError(err);
+      }
+    })();
+
+    /* ---------------- Load ---------------- */
+    async function loadLinks() {
+      const { data, error } = await sb.from('pickup_links').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      links = data;
+      renderRows();
+    }
+
+    async function loadPackages() {
+      const { data, error } = await sb.from('menu_packages').select('id, name, price, unit, is_active').order('sort_order').order('id');
+      if (error) throw error;
+      packages = data;
+    }
+
+    /* ---------------- Render: รายการลิงก์ ---------------- */
+    function renderRows() {
+      if (!links.length) {
+        $('#rows').innerHTML = '<tr><td colspan="7" class="empty">ยังไม่มีลิงก์ — กด "+ สร้างลิงก์" เพื่อเริ่มต้น</td></tr>';
+        return;
+      }
+      $('#rows').innerHTML = links.map((l) => `
+        <tr>
+          <td data-label="เลขที่อ้างอิง">${esc(l.external_quote_no || '-')}</td>
+          <td data-label="ลูกค้า">
+            ${esc(l.customer_name)}
+            ${l.phone ? `<div class="small muted">${esc(formatPhone(l.phone))}</div>` : ''}
+          </td>
+          <td data-label="งาน">
+            ${esc(l.event_name || '-')}
+            ${l.event_date ? `<div class="small muted">${thaiDate(l.event_date, 'short')}</div>` : ''}
+          </td>
+          <td data-label="แพ็กเกจ">${packageNames(l.package_ids)}</td>
+          <td data-label="สถานะ">${l.status === 'submitted' ? '<span class="badge st-confirmed">ลูกค้าเลือกแล้ว</span>' : '<span class="badge st-new">รอลูกค้าเลือก</span>'}</td>
+          <td class="nowrap muted small" data-label="สร้างเมื่อ">${thaiDate(l.created_at, 'short')}</td>
+          <td>
+            <div class="row-actions">
+              <button class="btn btn-sm" data-act="copy" data-id="${l.id}">คัดลอกลิงก์</button>
+              ${l.status === 'submitted' ? `<button class="btn btn-sm" data-act="view" data-id="${l.id}">ดูผลลัพธ์</button>` : ''}
+              <button class="btn btn-sm btn-danger" data-act="delete" data-id="${l.id}">ลบ</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    }
+
+    function packageNames(ids) {
+      if (!ids || !ids.length) return '-';
+      // package_ids เป็น bigint[] — PostgREST ส่งค่า bigint กลับมาเป็น string เทียบตรงๆ กับ number ไม่ได้
+      return ids.map((id) => esc(packages.find((p) => Number(p.id) === Number(id))?.name || `#${id}`)).join(', ');
+    }
+
+    /* ---------------- สร้างลิงก์ใหม่ ---------------- */
+    function openNewDialog() {
+      $('#newForm').reset();
+      checkedPkgIds = new Set();
+      $('#linkResult').hidden = true;
+      $('#externalStatus').textContent = 'ยังไม่ได้ดึงข้อมูล';
+      $('#externalList').innerHTML = '';
+      $('#externalSearch').hidden = true;
+      $('#externalSearch').value = '';
+      externalQuotes = [];
+      renderPkgChecklist();
+      $('#newDialog').showModal();
+      fetchExternalQuotes();
+    }
+
+    function renderPkgChecklist() {
+      if (!packages.length) { $('#pkgChecklist').textContent = 'ยังไม่มีแพ็กเกจ — ไปเพิ่มที่หน้า "แพ็กเกจ" ก่อน'; return; }
+      $('#pkgChecklist').innerHTML = packages.map((p) => `
+        <div class="pkg-check-row">
+          <label><input type="checkbox" data-pkg-check="${p.id}" ${checkedPkgIds.has(p.id) ? 'checked' : ''}>
+            ${esc(p.name)} <span class="muted small">฿${money0(p.price)}/${esc(p.unit)}${p.is_active ? '' : ' · ปิดใช้งานอยู่'}</span></label>
+        </div>`).join('');
+    }
+
+    async function fetchExternalQuotes() {
+      $('#externalStatus').textContent = 'กำลังดึงข้อมูล...';
+      $('#externalList').innerHTML = '';
+      $('#externalSearch').hidden = true;
+      try {
+        const res = await fetch('../api/manage_banquet_export.php', {
+          headers: { 'X-Staff-Token': session.access_token },
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body || body.status !== 'success') {
+          throw new Error((body && body.message) || `เรียก API ไม่สำเร็จ (HTTP ${res.status})`);
+        }
+        externalQuotes = body.data || [];
+        if (!externalQuotes.length) {
+          $('#externalStatus').textContent = 'ไม่พบใบเสนอราคาในระบบ manage_banquet';
+          return;
+        }
+        $('#externalStatus').textContent = `พบ ${externalQuotes.length} ใบ — คลิกรายการเพื่อกรอกข้อมูลอัตโนมัติ`;
+        $('#externalSearch').hidden = false;
+        renderExternalList();
+      } catch (err) {
+        $('#externalStatus').innerHTML = `⚠️ ดึงข้อมูลจาก manage_banquet ไม่สำเร็จ: ${esc(errorMessage(err))}<br>กรอกข้อมูลลูกค้าด้านล่างเองได้เลย`;
+      }
+    }
+
+    function renderExternalList() {
+      const term = $('#externalSearch').value.trim().toLowerCase();
+      const visible = !term ? externalQuotes : externalQuotes.filter((q) => [
+        q.quote_no, q.customer?.name, q.customer?.contact_name, q.customer?.phone, q.event_name,
+      ].some((v) => (v || '').toLowerCase().includes(term)));
+
+      $('#externalList').innerHTML = visible.length ? visible.map((q) => `
+        <div class="pick-row" data-ext="${externalQuotes.indexOf(q)}">
+          <div>
+            <div class="name">${esc(q.quote_no)} — ${esc(q.customer?.contact_name || q.customer?.name || '')}</div>
+            <div class="sub">${esc(q.event_name || '')} ${q.event_date ? '· ' + esc(q.event_date) : ''}</div>
+          </div>
+          <div class="sub">฿${money0(q.grand_total)}</div>
+        </div>`).join('') : '<p class="muted small">ไม่พบรายการที่ค้นหา</p>';
+    }
+
+    async function saveNewLink() {
+      const f = $('#newForm').elements;
+      if (!checkedPkgIds.size) { toast('กรุณาเลือกอย่างน้อย 1 แพ็กเกจ', 'error'); return; }
+      const payload = {
+        external_quote_no: f.external_quote_no.value.trim() || null,
+        customer_name: f.customer_name.value.trim(),
+        phone: f.phone.value.trim() || null,
+        event_name: f.event_name.value.trim() || null,
+        event_date: f.event_date.value || null,
+        guest_count: f.guest_count.value ? parseInt(f.guest_count.value, 10) : null,
+        note: f.note.value.trim() || null,
+        package_ids: [...checkedPkgIds],
+      };
+      if (!payload.customer_name) { toast('กรุณากรอกชื่อผู้ติดต่อ', 'error'); return; }
+
+      const { data, error } = await sb.from('pickup_links').insert(payload).select().single();
+      if (error) return showError(error);
+
+      const url = foodPickLink(data.token);
+      $('#linkResult').hidden = false;
+      $('#linkResultUrl').value = url;
+      await loadLinks();
+      toast('สร้างลิงก์แล้ว — คัดลอกไปส่งให้ลูกค้าได้เลย');
+    }
+
+    /* ---------------- ดูผลลัพธ์ ---------------- */
+    function openResultDialog(link) {
+      const sels = link.selections || [];
+      const extras = link.extra_items || [];
+      const extrasHtml = extras.length ? `
+        <div class="card" style="margin-bottom:10px">
+          <div style="font-weight:700">เมนูเสริม</div>
+          <div class="s-choices">${extras.map((x) => `${esc(x.name)} × ${num(x.qty)} ${esc(x.unit)}`).join('<br>')}</div>
+        </div>` : '';
+      $('#resultBody').innerHTML = `
+        <dl class="event-recap" style="margin-bottom:14px">
+          ${link.external_quote_no ? `<dt>เลขที่อ้างอิง</dt><dd>${esc(link.external_quote_no)}</dd>` : ''}
+          <dt>ลูกค้า</dt><dd>${esc(link.customer_name)}${link.phone ? ' · ' + esc(formatPhone(link.phone)) : ''}</dd>
+          ${link.event_name ? `<dt>งาน</dt><dd>${esc(link.event_name)}</dd>` : ''}
+          ${link.submitted_at ? `<dt>ส่งเมื่อ</dt><dd>${thaiDate(link.submitted_at)}</dd>` : ''}
+        </dl>
+        ${sels.map((s) => `
+          <div class="card" style="margin-bottom:10px">
+            <div style="font-weight:700">${esc(s.package_name)}</div>
+            <div class="s-choices">${esc(s.description || '').split('\n').join('<br>')}</div>
+            ${s.note ? `<div class="s-choices"><em>หมายเหตุ: ${esc(s.note)}</em></div>` : ''}
+          </div>`).join('') + extrasHtml || '<p class="muted">ไม่มีข้อมูล</p>'}`;
+      $('#resultDialog').showModal();
+    }
+
+    /* ---------------- Events ---------------- */
+    function bindEvents() {
+      $('#btnNew').addEventListener('click', openNewDialog);
+      $('#btnFetchExternal').addEventListener('click', fetchExternalQuotes);
+      $('#externalSearch').addEventListener('input', renderExternalList);
+
+      $('#externalList').addEventListener('click', (e) => {
+        const row = e.target.closest('[data-ext]');
+        if (!row) return;
+        const q = externalQuotes[Number(row.dataset.ext)];
+        if (!q) return;
+        const f = $('#newForm').elements;
+        f.external_quote_no.value = q.quote_no || '';
+        f.customer_name.value = q.customer?.contact_name || q.customer?.name || '';
+        f.phone.value = q.customer?.phone || '';
+        f.event_name.value = q.event_name || '';
+        f.event_date.value = q.event_date || '';
+        toast('กรอกข้อมูลจากใบเสนอราคานี้แล้ว — ตรวจสอบความถูกต้องอีกครั้ง');
+      });
+
+      $('#pkgChecklist').addEventListener('change', (e) => {
+        const el = e.target.closest('[data-pkg-check]');
+        if (!el) return;
+        const id = Number(el.dataset.pkgCheck);
+        if (el.checked) checkedPkgIds.add(id); else checkedPkgIds.delete(id);
+      });
+
+      $('#newForm').addEventListener('submit', (e) => { e.preventDefault(); withBusy($('#btnSaveNew'), saveNewLink); });
+      $$('[data-close]', $('#newDialog')).forEach((b) => b.addEventListener('click', () => $('#newDialog').close()));
+      $('#newDialog').addEventListener('close', loadLinks);
+
+      $('#btnCopyResult').addEventListener('click', async () => {
+        const url = $('#linkResultUrl').value;
+        try { await navigator.clipboard.writeText(url); toast('คัดลอกลิงก์แล้ว'); }
+        catch { window.prompt('คัดลอกลิงก์นี้เก็บไว้', url); }
+      });
+
+      $('#rows').addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-act]');
+        if (!btn) return;
+        const link = links.find((l) => l.id === btn.dataset.id);
+        if (!link) return;
+
+        if (btn.dataset.act === 'copy') {
+          const url = foodPickLink(link.token);
+          try { await navigator.clipboard.writeText(url); toast('คัดลอกลิงก์แล้ว'); }
+          catch { window.prompt('คัดลอกลิงก์นี้เก็บไว้', url); }
+        }
+        if (btn.dataset.act === 'view') openResultDialog(link);
+        if (btn.dataset.act === 'delete') {
+          if (!confirm(`ลบลิงก์ของ "${link.customer_name}" ?\nการลบไม่สามารถย้อนกลับได้`)) return;
+          await withBusy(btn, async () => {
+            const { error } = await sb.from('pickup_links').delete().eq('id', link.id);
+            if (error) return showError(error);
+            toast('ลบลิงก์แล้ว');
+            loadLinks();
+          });
+        }
+      });
+
+      $$('[data-close]', $('#resultDialog')).forEach((b) => b.addEventListener('click', () => $('#resultDialog').close()));
+    }
+  </script>
+</body>
+</html>

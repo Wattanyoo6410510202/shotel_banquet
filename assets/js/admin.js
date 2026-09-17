@@ -30,12 +30,18 @@ function customerLink(token) {
   return new URL(`../request.html?t=${token}`, location.href).href;
 }
 
+// ลิงก์เลือกอาหาร (จากหน้า "ลิงก์เลือกอาหาร") ที่ส่งให้ลูกค้าเลือกเมนูในแพ็กเกจที่กำหนดไว้
+function foodPickLink(token) {
+  return new URL(`../food-pick.html?t=${token}`, location.href).href;
+}
+
 function renderHeader(active, session) {
   const links = [
     ['index.html', 'รายการที่บันทึก', 'quotes'],
     ['quote-edit.html', '+ สร้างใบใหม่', 'new'],
     ['menu.html', 'เมนูอาหาร', 'menu'],
     ['packages.html', 'แพ็กเกจ', 'packages'],
+    ['food-links.html', 'ลิงก์เลือกอาหาร', 'foodlinks'],
     ['settings.html', 'ตั้งค่า', 'settings'],
   ];
   const header = document.createElement('header');

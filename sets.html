@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- theme-init -->
+  <script>try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" href="assets/img/logo.png?v=25">
+  <link rel="apple-touch-icon" href="assets/img/logo.png?v=25">
+  <title>เซตอาหารแนะนำ</title>
+  <meta name="description" content="แนะนำเซตอาหาร/แพ็กเกจจัดเลี้ยง พร้อมเมนูให้เลือกในแต่ละคอร์ส">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/app.css?v=25">
+  <link rel="stylesheet" href="assets/css/front.css?v=25">
+  <style>
+    #setList { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; align-items: start; }
+    #setList > details.card { margin-top: 0; }
+    @media (max-width: 640px) {
+      #setList { grid-template-columns: 1fr; }
+    }
+    .set-detail { margin-top: 14px; }
+    .set-toggle { width: 100%; text-align: left; cursor: pointer; list-style: none; }
+    .set-toggle::-webkit-details-marker { display: none; }
+    .set-toggle .pkg-card { margin: 0; }
+    details[open] .set-toggle .icon-caret { transform: rotate(180deg); }
+    .icon-caret { display: inline-block; transition: transform .15s; margin-left: 6px; }
+    .set-course-name { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
+    .cta-bar { text-align: center; padding: 28px 0 8px; }
+  </style>
+</head>
+<body class="front">
+  <header class="front-hero">
+    <div class="front-wrap">
+      <div class="hero-top" id="heroTop">
+        <div class="hero-brand">
+          <img id="heroLogo" src="assets/img/logo.png?v=25" alt="">
+          <div>
+            <div class="hero-name" id="companyName">&nbsp;</div>
+            <div class="hero-sub">บริการจัดเลี้ยง</div>
+          </div>
+        </div>
+      </div>
+      <h1 class="hero-title">เซตอาหารแนะนำ</h1>
+      <p class="hero-welcome">เลือกชมเซตอาหาร/แพ็กเกจจัดเลี้ยงของเรา แต่ละเซตเลือกเมนูในแต่ละคอร์สได้เอง</p>
+    </div>
+  </header>
+
+  <main class="front-wrap front-main">
+    <div class="card notice" id="loading">กำลังโหลด...</div>
+    <div class="card notice" id="empty" hidden>
+      <div class="big">🍽️</div>
+      <h2>ยังไม่มีเซตอาหารให้แนะนำ</h2>
+      <p class="muted">กรุณาติดต่อโรงแรมโดยตรงเพื่อสอบถามเมนู</p>
+    </div>
+    <div id="setList"></div>
+    <div class="cta-bar" id="ctaBar" hidden>
+      <a class="btn btn-primary" href="index.html">ขอใบเสนอราคาสำหรับงานของคุณ ›</a>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=25"></script>
+  <script src="assets/js/core.js?v=25"></script>
+  <script>
+    $('#heroTop').appendChild(themeToggleButton());
+
+    (async () => {
+      const [pkgsRes, settingsRes] = await Promise.all([
+        sb.rpc('get_public_packages'),
+        sb.rpc('get_public_settings'),
+      ]);
+
+      const s = settingsRes.data || {};
+      if (s.company_name) {
+        $('#companyName').textContent = s.company_name;
+        document.title = `เซตอาหารแนะนำ — ${s.company_name}`;
+      }
+      if (s.logo_url) {
+        const img = $('#heroLogo');
+        img.onerror = () => { img.onerror = null; img.src = DEFAULT_LOGO; };
+        img.src = s.logo_url;
+      }
+
+      $('#loading').hidden = true;
+      if (pkgsRes.error) {
+        $('#loading').hidden = false;
+        $('#loading').innerHTML = `<div class="big">⚠️</div><p>${esc(errorMessage(pkgsRes.error))}</p>`;
+        return;
+      }
+
+      const packages = pkgsRes.data || [];
+      if (!packages.length) { $('#empty').hidden = false; return; }
+
+      $('#setList').innerHTML = packages.map(setCardHtml).join('');
+      $('#ctaBar').hidden = false;
+    })();
+
+    function setCardHtml(pkg) {
+      return `
+        <details class="card" style="padding:0; overflow:hidden">
+          <summary class="set-toggle">
+            <article class="pkg-card ${pkg.image_url ? 'pkg-card--photo' : ''}" style="cursor:pointer">
+              <div class="pkg-card-bg">
+                ${pkg.image_url ? `<img src="${esc(pkg.image_url)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
+              </div>
+              <div class="pkg-card-content">
+                <div class="pkg-head">
+                  <div>
+                    <div class="pkg-name">${esc(pkg.name)}${pkg.name_en ? ` <span class="pkg-sub">(${esc(pkg.name_en)})</span>` : ''}</div>
+                    <div class="pkg-sub">${pkg.courses.length} คอร์ส${pkg.serves ? ` • ประมาณ ${num(pkg.serves)} ท่าน/${esc(pkg.unit)}` : ''}</div>
+                    ${pkg.description ? `<div class="pkg-sub" style="margin-top:4px">${esc(pkg.description)}</div>` : ''}
+                  </div>
+                  <div class="pkg-price">฿${money0(pkg.price)} <small>/${esc(pkg.unit)}</small></div>
+                </div>
+                <div class="pkg-actions">
+                  <span class="btn btn-sm">ดูเมนูในเซตนี้ <span class="icon-caret">▾</span></span>
+                </div>
+              </div>
+            </article>
+          </summary>
+          <div class="set-detail" style="padding:0 20px 20px">
+            ${pkg.courses.map((c) => `
+              <div class="pkg-course">
+                <div class="set-course-name">${esc(c.name)} <span class="muted small">(เลือกได้ ${c.pick_count} จาก ${c.choices.length})</span></div>
+                <div class="pkg-item-grid">
+                  ${c.choices.map((ch) => `
+                    <div class="pkg-item-choice" style="cursor:default">
+                      ${ch.image_url
+                        ? `<img src="${esc(ch.image_url)}" alt="" loading="lazy" onerror="this.remove()">`
+                        : `<div class="pkg-item-noimg">🍽️</div>`}
+                      <span class="pkg-item-name">${esc(ch.name)}</span>
+                    </div>`).join('')}
+                </div>
+              </div>`).join('')}
+          </div>
+        </details>`;
+    }
+  </script>
+</body>
+</html>
