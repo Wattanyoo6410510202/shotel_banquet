@@ -1,7 +1,7 @@
 -- =====================================================================
---  เพิ่ม API ให้ระบบภายนอก "ดึง" ข้อมูลลิงก์เลือกอาหาร (pickup_links) — 2026-09-17
+--  export_pickup_selections: เพิ่มราคาเข้าไปในข้อมูลที่ส่งออก — 2026-09-17
 --  วางทั้งไฟล์นี้ใน Supabase Dashboard > SQL Editor แล้วกด Run ได้เลย (รันซ้ำได้ปลอดภัย)
---  สร้างฟังก์ชันใหม่ (ไม่กระทบของเดิม) — ใช้รหัสลับตัวเดียวกับ export_quotations
+--  แทนที่ฟังก์ชันเดิมทั้งตัว (create or replace) — ไม่กระทบข้อมูลหรือฟังก์ชันอื่น
 --  เนื้อหานี้รวมเข้า supabase/schema.sql แล้ว ไฟล์นี้มีไว้แค่ให้รันครั้งเดียวกับ DB จริง
 --  ดูวิธีเรียกใช้ + ตัวอย่าง response ใน API-EXPORT-PICKUP.md
 -- =====================================================================
@@ -32,11 +32,38 @@ begin
       'note',               l.note,
       'status',             l.status,
       'packages',           (
-        select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name) order by p.id), '[]'::jsonb)
+        select coalesce(jsonb_agg(jsonb_build_object(
+                 'id', p.id, 'name', p.name, 'unit_price', p.price, 'unit', p.unit,
+                 'per_person', p.per_person, 'serves', p.serves
+               ) order by p.id), '[]'::jsonb)
           from menu_packages p where p.id = any(l.package_ids)
       ),
-      'selections',         l.selections,
-      'extra_items',        l.extra_items,
+      -- ราคาไม่ได้เก็บไว้ตอนลูกค้า submit (เก็บแค่รายละเอียดคอร์ส/เมนู) จึงต้อง join กับ
+      -- menu_packages/menu_items ตอนส่งออกทุกครั้ง โดยอิงราคา ณ ปัจจุบัน ไม่ใช่ราคา ณ วันที่เลือก
+      'selections',         (
+        case when l.selections is null then null else (
+          select coalesce(jsonb_agg(
+                   sel.value || jsonb_build_object(
+                     'unit_price',  pk.price,
+                     'unit',        pk.unit,
+                     'per_person',  pk.per_person,
+                     'serves',      pk.serves
+                   ) order by sel.ord
+                 ), '[]'::jsonb)
+            from jsonb_array_elements(l.selections) with ordinality as sel(value, ord)
+            left join menu_packages pk on pk.id = (sel.value->>'package_id')::bigint
+        ) end
+      ),
+      'extra_items',        (
+        case when l.extra_items is null then null else (
+          select coalesce(jsonb_agg(
+                   it.value || jsonb_build_object('unit_price', mi.price)
+                   order by it.ord
+                 ), '[]'::jsonb)
+            from jsonb_array_elements(l.extra_items) with ordinality as it(value, ord)
+            left join menu_items mi on mi.id = (it.value->>'menu_item_id')::bigint
+        ) end
+      ),
       'created_at',         l.created_at,
       'submitted_at',       l.submitted_at
     )

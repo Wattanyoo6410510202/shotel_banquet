@@ -798,11 +798,38 @@ begin
       'note',               l.note,
       'status',             l.status,
       'packages',           (
-        select coalesce(jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name) order by p.id), '[]'::jsonb)
+        select coalesce(jsonb_agg(jsonb_build_object(
+                 'id', p.id, 'name', p.name, 'unit_price', p.price, 'unit', p.unit,
+                 'per_person', p.per_person, 'serves', p.serves
+               ) order by p.id), '[]'::jsonb)
           from menu_packages p where p.id = any(l.package_ids)
       ),
-      'selections',         l.selections,
-      'extra_items',        l.extra_items,
+      -- ราคาไม่ได้เก็บไว้ตอนลูกค้า submit (เก็บแค่รายละเอียดคอร์ส/เมนู) จึงต้อง join กับ
+      -- menu_packages/menu_items ตอนส่งออกทุกครั้ง โดยอิงราคา ณ ปัจจุบัน ไม่ใช่ราคา ณ วันที่เลือก
+      'selections',         (
+        case when l.selections is null then null else (
+          select coalesce(jsonb_agg(
+                   sel.value || jsonb_build_object(
+                     'unit_price',  pk.price,
+                     'unit',        pk.unit,
+                     'per_person',  pk.per_person,
+                     'serves',      pk.serves
+                   ) order by sel.ord
+                 ), '[]'::jsonb)
+            from jsonb_array_elements(l.selections) with ordinality as sel(value, ord)
+            left join menu_packages pk on pk.id = (sel.value->>'package_id')::bigint
+        ) end
+      ),
+      'extra_items',        (
+        case when l.extra_items is null then null else (
+          select coalesce(jsonb_agg(
+                   it.value || jsonb_build_object('unit_price', mi.price)
+                   order by it.ord
+                 ), '[]'::jsonb)
+            from jsonb_array_elements(l.extra_items) with ordinality as it(value, ord)
+            left join menu_items mi on mi.id = (it.value->>'menu_item_id')::bigint
+        ) end
+      ),
       'created_at',         l.created_at,
       'submitted_at',       l.submitted_at
     )
