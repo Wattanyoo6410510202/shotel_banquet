@@ -46,20 +46,37 @@ if ($authStatus !== 200) {
     fail(401, 'unauthorized');
 }
 
-// ดึงข้อมูลจาก manage_banquet
-$ch = curl_init(REMOTE_URL);
-curl_setopt_array($ch, [
-    CURLOPT_HTTPHEADER => ['X-API-Key: ' . REMOTE_KEY],
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT => 15,
-]);
-$body = curl_exec($ch);
-$status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$err = curl_error($ch);
-curl_close($ch);
+// NAS ของ manage_banquet ตอบช้ามากในครั้งแรกหลังว่างนาน (วัดได้ ~50 วินาที) จึงรอนานและลองซ้ำอีก 1 ครั้ง
+set_time_limit(120);
+$body = false;
+$status = 0;
+$err = '';
+$json = null;
+for ($attempt = 1; $attempt <= 2; $attempt++) {
+    $ch = curl_init(REMOTE_URL);
+    curl_setopt_array($ch, [
+        CURLOPT_HTTPHEADER => ['X-API-Key: ' . REMOTE_KEY],
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 50,
+    ]);
+    $body = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    $json = ($body === false) ? null : json_decode($body, true);
+    if (is_array($json)) {
+        break;
+    }
+}
 
 if ($body === false) {
     fail(502, 'เชื่อมต่อระบบ manage_banquet ไม่ได้: ' . $err);
+}
+if (!is_array($json)) {
+    $snippet = mb_substr(trim(strip_tags((string) $body)), 0, 150);
+    fail(502, 'ระบบ manage_banquet ตอบกลับมาไม่ใช่ JSON (HTTP ' . $status . ')' . ($snippet !== '' ? ': ' . $snippet : ' — ตอบกลับว่างเปล่า'));
 }
 
 http_response_code($status ?: 500);

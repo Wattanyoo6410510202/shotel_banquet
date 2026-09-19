@@ -223,9 +223,12 @@
         const res = await fetch('../api/manage_banquet_export.php', {
           headers: { 'X-Staff-Token': session.access_token },
         });
-        const body = await res.json().catch(() => null);
+        const raw = await res.text();
+        let body = null;
+        try { body = JSON.parse(raw); } catch (_) { /* ไม่ใช่ JSON */ }
         if (!res.ok || !body || body.status !== 'success') {
-          throw new Error((body && body.message) || `เรียก API ไม่สำเร็จ (HTTP ${res.status})`);
+          const hint = raw.trim().slice(0, 120).replace(/<[^>]*>/g, ' ').trim();
+          throw new Error((body && body.message) || `ตอบกลับมาไม่ใช่ข้อมูลที่ใช้ได้ (HTTP ${res.status})${hint ? ': ' + hint : ' — ตอบกลับว่างเปล่า'}`);
         }
         externalQuotes = body.data || [];
         if (!externalQuotes.length) {
