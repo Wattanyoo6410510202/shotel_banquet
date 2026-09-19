@@ -8,8 +8,9 @@
  */
 
 const REMOTE_URL        = 'https://nas909ssf.myqnapcloud.com:8081/manage_banquet/api/export_quotations.php';
-const REMOTE_KEY         = '82263da08c2d0c6b5d70ee113691f710a4de802617d06521';
-const SUPABASE_URL       = 'https://govmturozgtfvllvnvap.supabase.co';
+// รหัสอ่านจาก env MANAGE_BANQUET_KEY หรือไฟล์ api/manage_banquet_key.txt (ไฟล์นี้อยู่ใน .gitignore ห้ามเขียนรหัสลงในโค้ด)
+$remoteKey = getenv('MANAGE_BANQUET_KEY') ?: (is_file(__DIR__ . '/manage_banquet_key.txt') ? trim(file_get_contents(__DIR__ . '/manage_banquet_key.txt')) : '');
+const SUPABASE_URL      = 'https://govmturozgtfvllvnvap.supabase.co';
 const SUPABASE_ANON_KEY  = 'sb_publishable_N9psu9QmYz3hcIcPiasFdw_sMzcFukU';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -23,6 +24,10 @@ function fail($code, $message) {
 
 // หมายเหตุ: ใช้ header ชื่อเอง (ไม่ใช่ Authorization) เพราะ Apache/PHP บน XAMPP
 // ค่าเริ่มต้นไม่ส่งต่อ header "Authorization" ให้สคริปต์ PHP เห็น
+if ($remoteKey === '') {
+    fail(500, 'ยังไม่ได้ตั้งรหัส manage_banquet (ใส่ใน api/manage_banquet_key.txt หรือ env MANAGE_BANQUET_KEY)');
+}
+
 $token = trim($_SERVER['HTTP_X_STAFF_TOKEN'] ?? '');
 if ($token === '') {
     fail(401, 'unauthorized');
@@ -55,7 +60,7 @@ $json = null;
 for ($attempt = 1; $attempt <= 2; $attempt++) {
     $ch = curl_init(REMOTE_URL);
     curl_setopt_array($ch, [
-        CURLOPT_HTTPHEADER => ['X-API-Key: ' . REMOTE_KEY],
+        CURLOPT_HTTPHEADER => ['X-API-Key: ' . $remoteKey],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => 50,

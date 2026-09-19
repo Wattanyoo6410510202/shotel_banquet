@@ -1,0 +1,7 @@
+[functions]
+  directory = "netlify/functions"
+
+# ลบไฟล์ภายในที่ไม่ควรเผยแพร่ออกจากเว็บก่อน deploy
+# (โค้ด PHP / SQL / เอกสาร API / ไฟล์ Excel ต้นทุนอาหาร — หน้าเว็บไม่ได้ใช้ไฟล์เหล่านี้)
+[build]
+  command = "rm -rf api supabase README.md SPEC.md API-EXPORT.md API-EXPORT-PICKUP.md API-EXPORT-QUOTATIONS.md *.xlsx"
