@@ -23,6 +23,11 @@
     .link-result[hidden] { display: none; }
     .link-result { border: 1px dashed var(--brand); border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .link-result input { flex: 1; min-width: 200px; }
+    .pkg-check-row.locked label { cursor: not-allowed; }
+    .lock-note[hidden] { display: none; }
+    .lock-note { font-size: .85rem; padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; background: var(--info-soft); color: var(--info-ink); }
+    .lock-note.warn { background: var(--warn-soft); color: var(--warn-ink); }
+    .lock-note ul { margin: 4px 0 0; padding-left: 18px; }
     .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
   </style>
 </head>
@@ -88,7 +93,9 @@
 
         <div class="card" style="margin-top:12px">
           <h3 style="margin-top:0">เลือกแพ็กเกจที่ให้ลูกค้าเลือกเมนูได้</h3>
+          <div id="pkgLockNote" class="lock-note" hidden></div>
           <div id="pkgChecklist" class="muted small">กำลังโหลด...</div>
+          <div id="extrasNote" class="small" style="margin-top:8px"></div>
         </div>
 
         <div class="link-result" id="linkResult" hidden>
@@ -126,6 +133,9 @@
     let packages = [];
     let checkedPkgIds = new Set();
     let externalQuotes = [];
+    // ผลวิเคราะห์ใบเสนอราคาที่เลือกจาก manage_banquet (null = กรอกเอง ไม่ได้เลือกใบ)
+    // { quote_no, locked, matched: [{item, pkg, by}], unmatched: [item], hasBreak, breakItems: [item] }
+    let quotePlan = null;
 
     (async () => {
       session = await requireAuth();
@@ -172,7 +182,10 @@
             ${esc(l.event_name || '-')}
             ${l.event_date ? `<div class="small muted">${thaiDate(l.event_date, 'short')}</div>` : ''}
           </td>
-          <td data-label="แพ็กเกจ">${packageNames(l.package_ids)}</td>
+          <td data-label="แพ็กเกจ">
+            ${packageNames(l.package_ids)}
+            <div class="small muted">${l.include_extras === false ? 'เฉพาะอาหาร' : '+ เลือกเบรกได้'}</div>
+          </td>
           <td data-label="สถานะ">${l.status === 'submitted' ? '<span class="badge st-confirmed">ลูกค้าเลือกแล้ว</span>' : '<span class="badge st-new">รอลูกค้าเลือก</span>'}</td>
           <td class="nowrap muted small" data-label="สร้างเมื่อ">${thaiDate(l.created_at, 'short')}</td>
           <td>
@@ -201,18 +214,100 @@
       $('#externalSearch').hidden = true;
       $('#externalSearch').value = '';
       externalQuotes = [];
+      quotePlan = null;
       renderPkgChecklist();
       $('#newDialog').showModal();
       fetchExternalQuotes();
     }
 
     function renderPkgChecklist() {
+      renderPlanNotes();
       if (!packages.length) { $('#pkgChecklist').textContent = 'ยังไม่มีแพ็กเกจ — ไปเพิ่มที่หน้า "แพ็กเกจ" ก่อน'; return; }
+      const locked = !!quotePlan?.locked;
       $('#pkgChecklist').innerHTML = packages.map((p) => `
-        <div class="pkg-check-row">
-          <label><input type="checkbox" data-pkg-check="${p.id}" ${checkedPkgIds.has(p.id) ? 'checked' : ''}>
+        <div class="pkg-check-row ${locked ? 'locked' : ''}">
+          <label><input type="checkbox" data-pkg-check="${p.id}" ${checkedPkgIds.has(Number(p.id)) ? 'checked' : ''} ${locked ? 'disabled' : ''}>
             ${esc(p.name)} <span class="muted small">฿${money0(p.price)}/${esc(p.unit)}${p.is_active ? '' : ' · ปิดใช้งานอยู่'}</span></label>
         </div>`).join('');
+    }
+
+    function renderPlanNotes() {
+      const note = $('#pkgLockNote');
+      note.hidden = !quotePlan || (!quotePlan.locked && !quotePlan.unmatched.length);
+      note.classList.toggle('warn', !!quotePlan && !quotePlan.locked);
+      if (quotePlan?.locked) {
+        note.innerHTML = `🔒 ล็อกแพ็กเกจตามรายการอาหารในใบเสนอราคา ${esc(quotePlan.quote_no)} (แก้ไขไม่ได้)
+          <ul>${quotePlan.matched.map((m) => `<li>${esc(m.item.item_name)} → <b>${esc(m.pkg.name)}</b>${m.by === 'price' ? ' (จับคู่จากราคา)' : ''}</li>`).join('')}</ul>
+          ${quotePlan.unmatched.length ? `<div style="margin-top:4px">⚠️ รายการอาหารที่หาแพ็กเกจไม่เจอ (ไม่ได้ใส่ในลิงก์): ${quotePlan.unmatched.map((i) => esc(i.item_name)).join(', ')}</div>` : ''}`;
+      } else if (quotePlan?.unmatched.length) {
+        note.innerHTML = `⚠️ ใบเสนอราคา ${esc(quotePlan.quote_no)} มีรายการอาหาร แต่ไม่พบแพ็กเกจที่ตรงกัน — กรุณาเลือกแพ็กเกจเอง
+          <ul>${quotePlan.unmatched.map((i) => `<li>${esc(i.item_name)}</li>`).join('')}</ul>`;
+      }
+
+      const extras = $('#extrasNote');
+      if (!quotePlan) {
+        extras.innerHTML = '<span class="muted">☕ ลูกค้าเลือกเบรก/เครื่องดื่มเพิ่มได้ด้วย</span>';
+      } else if (quotePlan.hasBreak) {
+        extras.innerHTML = `☕ <b>รวมเบรก</b> — ใบเสนอราคามีรายการเบรก ลูกค้าจะเลือกเบรก/เครื่องดื่มในลิงก์ได้ด้วย
+          <span class="muted">(${quotePlan.breakItems.map((i) => esc(i.item_name)).join(', ')})</span>`;
+      } else {
+        extras.innerHTML = '🍽️ <b>เฉพาะอาหาร</b> — ใบเสนอราคาไม่มีรายการเบรก ลิงก์นี้จะไม่มีส่วนเลือกเบรก';
+      }
+    }
+
+    /* ---------------- วิเคราะห์ใบเสนอราคา: ประเภทรายการ → แพ็กเกจ / เบรก ---------------- */
+    const BREAK_RE = /break|เบรก|อาหารว่าง|snack/i;
+
+    // manage_banquet ส่งประเภทมาใน items[].item_type (Food / Beverage / Room / ...) — เผื่อชื่อฟิลด์อื่นไว้ด้วย
+    function itemKind(it) {
+      const type = String(it.item_type ?? it.type ?? it.category ?? it.item_category ?? '').trim();
+      if (BREAK_RE.test(type)) return 'break';
+      if (/food|อาหาร/i.test(type)) return BREAK_RE.test(it.item_name || '') ? 'break' : 'food';
+      return 'other';
+    }
+
+    // เทียบชื่อแบบไม่สนช่องว่าง ตัวพิมพ์ จุลภาค และคำว่า "บาท" เช่น "Thai Set 3,000 บาท/โต๊ะ" ↔ "Thai Set 3,000"
+    const normName = (s) => String(s || '').toLowerCase().replace(/บาท|[\s,.\-_()฿]/g, '');
+
+    function matchPackage(item) {
+      const name = normName(item.item_name);
+      const byName = packages
+        .filter((p) => normName(p.name).length >= 3 && (name.includes(normName(p.name)) || normName(p.name).includes(name)))
+        .sort((a, b) => normName(b.name).length - normName(a.name).length);
+      if (byName.length) return { pkg: byName[0], by: 'name' };
+      // ชื่อไม่ตรง → ลองราคาต่อหน่วย ใช้ได้เฉพาะเมื่อมีแพ็กเกจราคานั้นแพ็กเกจเดียว (กันจับผิดตัว)
+      const price = Number(item.unit_price);
+      const byPrice = price > 0 ? packages.filter((p) => Number(p.price) === price) : [];
+      if (byPrice.length === 1) return { pkg: byPrice[0], by: 'price' };
+      return null;
+    }
+
+    function analyzeQuote(q) {
+      const items = q.items || [];
+      const food = items.filter((i) => itemKind(i) === 'food');
+      const breakItems = items.filter((i) => itemKind(i) === 'break');
+      const matched = [];
+      const unmatched = [];
+      for (const item of food) {
+        const m = matchPackage(item);
+        if (m) matched.push({ item, ...m }); else unmatched.push(item);
+      }
+      return {
+        quote_no: q.quote_no || '',
+        locked: matched.length > 0,
+        matched,
+        unmatched,
+        hasBreak: breakItems.length > 0,
+        breakItems,
+      };
+    }
+
+    function applyQuotePlan(q) {
+      const wasLocked = !!quotePlan?.locked;
+      quotePlan = analyzeQuote(q);
+      if (quotePlan.locked) checkedPkgIds = new Set(quotePlan.matched.map((m) => Number(m.pkg.id)));
+      else if (wasLocked) checkedPkgIds = new Set(); // เปลี่ยนจากใบที่ล็อกไว้ → ล้างแพ็กเกจของใบเดิมออก
+      renderPkgChecklist();
     }
 
     async function fetchExternalQuotes() {
@@ -279,10 +374,15 @@
         guest_count: f.guest_count.value ? parseInt(f.guest_count.value, 10) : null,
         note: f.note.value.trim() || null,
         package_ids: [...checkedPkgIds],
+        // กรอกเอง (ไม่ได้เลือกใบเสนอราคา) → เปิดเบรกเหมือนเดิม · เลือกใบ → เปิดเฉพาะเมื่อใบนั้นมีรายการเบรก
+        include_extras: quotePlan ? quotePlan.hasBreak : true,
       };
       if (!payload.customer_name) { toast('กรุณากรอกชื่อผู้ติดต่อ', 'error'); return; }
 
       const { data, error } = await sb.from('pickup_links').insert(payload).select().single();
+      if (error && /include_extras/.test(error.message || '')) {
+        return showError(new Error('ฐานข้อมูลยังไม่ได้อัปเดต — กรุณารันไฟล์ supabase/run-in-sql-editor.sql ใน Supabase SQL Editor ก่อน'));
+      }
       if (error) return showError(error);
 
       const url = foodPickLink(data.token);
@@ -334,12 +434,13 @@
         f.phone.value = q.customer?.phone || '';
         f.event_name.value = q.event_name || '';
         f.event_date.value = q.event_date || '';
+        applyQuotePlan(q);
         toast('กรอกข้อมูลจากใบเสนอราคานี้แล้ว — ตรวจสอบความถูกต้องอีกครั้ง');
       });
 
       $('#pkgChecklist').addEventListener('change', (e) => {
         const el = e.target.closest('[data-pkg-check]');
-        if (!el) return;
+        if (!el || quotePlan?.locked) return;
         const id = Number(el.dataset.pkgCheck);
         if (el.checked) checkedPkgIds.add(id); else checkedPkgIds.delete(id);
       });

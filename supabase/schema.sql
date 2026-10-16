@@ -191,6 +191,9 @@ create table if not exists public.pickup_links (
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );
+-- เปิดให้ลูกค้าเลือกเมนูเสริม (Coffee Break / เครื่องดื่ม) ในลิงก์นี้ด้วยหรือไม่ — ลิงก์ที่สร้างจากใบเสนอราคา
+-- manage_banquet จะเปิดเฉพาะเมื่อใบนั้นมีรายการเบรก (เพิ่มคอลัมน์ทีหลัง จึงใช้ add column if not exists)
+alter table public.pickup_links add column if not exists include_extras boolean not null default true;
 create unique index if not exists pickup_links_token_idx   on public.pickup_links(token);
 create index if not exists pickup_links_created_idx on public.pickup_links(created_at desc);
 
@@ -604,6 +607,7 @@ begin
     'status',            l.status,
     'selections',        l.selections,
     'extra_items',       l.extra_items,
+    'include_extras',    l.include_extras,
     'packages',          v_pkgs
   );
 end $$;
@@ -714,7 +718,8 @@ begin
   end if;
 
   -- เมนูเดี่ยวเพิ่มเติมนอกแพ็กเกจ (ไม่บังคับ) เช่น Coffee Break / เครื่องดื่ม — ต้องเป็นเมนูที่เปิดใช้งานอยู่จริง
-  for v_item in select value from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
+  -- ลิงก์ที่ปิดเมนูเสริมไว้ (include_extras = false) ไม่รับรายการเหล่านี้เลย
+  for v_item in select value from jsonb_array_elements(case when l.include_extras then coalesce(p_items, '[]'::jsonb) else '[]'::jsonb end)
   loop
     v_item_id := case when v_item->>'menu_item_id' ~ '^\d{1,18}$' then (v_item->>'menu_item_id')::bigint end;
     if v_item_id is null then

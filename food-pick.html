@@ -218,7 +218,9 @@
 
     /* ---------------- เมนูเสริม (Coffee Break / เครื่องดื่ม) ---------------- */
     function renderExtras() {
-      if (!extraItems.length) { $('#extraCard').hidden = true; return; }
+      // include_extras = false: ลิงก์นี้สร้างจากใบเสนอราคาที่ไม่มีเบรก ให้เลือกเฉพาะอาหารในแพ็กเกจ
+      // (ลิงก์ที่สร้างก่อนมีคอลัมน์นี้จะไม่มีค่า → ถือว่าเปิดไว้เหมือนเดิม)
+      if (link.include_extras === false || !extraItems.length) { $('#extraCard').hidden = true; return; }
       $('#extraCard').hidden = false;
       const groups = [...extraCatById.keys()]
         .map((catId) => ({ name: extraCatById.get(catId), items: extraItems.filter((m) => m.category_id === catId) }))
