@@ -20,7 +20,7 @@
     .pick-row .sub { font-size: .78rem; color: var(--muted); }
     .pkg-check-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
     .pkg-check-row label { flex: 1; cursor: pointer; }
-    .link-result[hidden] { display: none; }
+    .link-result[hidden], #pkgCard[hidden] { display: none; }
     .link-result { border: 1px dashed var(--brand); border-radius: 8px; padding: 10px; margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .link-result input { flex: 1; min-width: 200px; }
     .pkg-check-row.locked label { cursor: not-allowed; }
@@ -92,6 +92,14 @@
         </div>
 
         <div class="card" style="margin-top:12px">
+          <h3 style="margin-top:0">ประเภทลิงก์</h3>
+          <label class="pkg-check-row"><input type="radio" name="link_mode" value="food" checked>
+            🍽️ เลือกอาหารตามแพ็กเกจ <span class="muted small">(+ เบรก/เครื่องดื่ม ถ้ามี)</span></label>
+          <label class="pkg-check-row"><input type="radio" name="link_mode" value="break">
+            ☕ เฉพาะเบรก/เครื่องดื่ม <span class="muted small">(ไม่มีส่วนเลือกอาหาร)</span></label>
+        </div>
+
+        <div class="card" style="margin-top:12px" id="pkgCard">
           <h3 style="margin-top:0">เลือกแพ็กเกจที่ให้ลูกค้าเลือกเมนูได้</h3>
           <div id="pkgLockNote" class="lock-note" hidden></div>
           <div id="pkgChecklist" class="muted small">กำลังโหลด...</div>
@@ -183,8 +191,8 @@
             ${l.event_date ? `<div class="small muted">${thaiDate(l.event_date, 'short')}</div>` : ''}
           </td>
           <td data-label="แพ็กเกจ">
-            ${packageNames(l.package_ids)}
-            <div class="small muted">${l.include_extras === false ? 'เฉพาะอาหาร' : '+ เลือกเบรกได้'}</div>
+            ${l.package_ids?.length ? `${packageNames(l.package_ids)}
+            <div class="small muted">${l.include_extras === false ? 'เฉพาะอาหาร' : '+ เลือกเบรกได้'}</div>` : '☕ เฉพาะเบรก/เครื่องดื่ม'}
           </td>
           <td data-label="สถานะ">${l.status === 'submitted' ? '<span class="badge st-confirmed">ลูกค้าเลือกแล้ว</span>' : '<span class="badge st-new">รอลูกค้าเลือก</span>'}</td>
           <td class="nowrap muted small" data-label="สร้างเมื่อ">${thaiDate(l.created_at, 'short')}</td>
@@ -216,6 +224,7 @@
       externalQuotes = [];
       quotePlan = null;
       renderPkgChecklist();
+      renderLinkMode();
       $('#newDialog').showModal();
       fetchExternalQuotes();
     }
@@ -229,6 +238,13 @@
           <label><input type="checkbox" data-pkg-check="${p.id}" ${checkedPkgIds.has(Number(p.id)) ? 'checked' : ''} ${locked ? 'disabled' : ''}>
             ${esc(p.name)} <span class="muted small">฿${money0(p.price)}/${esc(p.unit)}${p.is_active ? '' : ' · ปิดใช้งานอยู่'}</span></label>
         </div>`).join('');
+    }
+
+    // ลิงก์ "เฉพาะเบรก" ไม่มีแพ็กเกจอาหาร → ซ่อนส่วนเลือกแพ็กเกจ
+    const isBreakOnly = () => $('#newForm').elements.link_mode.value === 'break';
+
+    function renderLinkMode() {
+      $('#pkgCard').hidden = isBreakOnly();
     }
 
     function renderPlanNotes() {
@@ -307,7 +323,11 @@
       quotePlan = analyzeQuote(q);
       if (quotePlan.locked) checkedPkgIds = new Set(quotePlan.matched.map((m) => Number(m.pkg.id)));
       else if (wasLocked) checkedPkgIds = new Set(); // เปลี่ยนจากใบที่ล็อกไว้ → ล้างแพ็กเกจของใบเดิมออก
+      // ใบที่มีแต่เบรก ไม่มีรายการอาหารเลย → เลือก "เฉพาะเบรก" ให้อัตโนมัติ
+      const breakOnly = quotePlan.hasBreak && !quotePlan.matched.length && !quotePlan.unmatched.length;
+      $('#newForm').elements.link_mode.value = breakOnly ? 'break' : 'food';
       renderPkgChecklist();
+      renderLinkMode();
     }
 
     async function fetchExternalQuotes() {
@@ -364,7 +384,8 @@
 
     async function saveNewLink() {
       const f = $('#newForm').elements;
-      if (!checkedPkgIds.size) { toast('กรุณาเลือกอย่างน้อย 1 แพ็กเกจ', 'error'); return; }
+      const breakOnly = isBreakOnly();
+      if (!breakOnly && !checkedPkgIds.size) { toast('กรุณาเลือกอย่างน้อย 1 แพ็กเกจ', 'error'); return; }
       const payload = {
         external_quote_no: f.external_quote_no.value.trim() || null,
         customer_name: f.customer_name.value.trim(),
@@ -373,9 +394,9 @@
         event_date: f.event_date.value || null,
         guest_count: f.guest_count.value ? parseInt(f.guest_count.value, 10) : null,
         note: f.note.value.trim() || null,
-        package_ids: [...checkedPkgIds],
-        // กรอกเอง (ไม่ได้เลือกใบเสนอราคา) → เปิดเบรกเหมือนเดิม · เลือกใบ → เปิดเฉพาะเมื่อใบนั้นมีรายการเบรก
-        include_extras: quotePlan ? quotePlan.hasBreak : true,
+        package_ids: breakOnly ? [] : [...checkedPkgIds],
+        // เฉพาะเบรก → เปิดเบรกเสมอ · กรอกเอง (ไม่ได้เลือกใบเสนอราคา) → เปิดเบรกเหมือนเดิม · เลือกใบ → เปิดเฉพาะเมื่อใบนั้นมีรายการเบรก
+        include_extras: breakOnly || (quotePlan ? quotePlan.hasBreak : true),
       };
       if (!payload.customer_name) { toast('กรุณากรอกชื่อผู้ติดต่อ', 'error'); return; }
 
@@ -437,6 +458,8 @@
         applyQuotePlan(q);
         toast('กรอกข้อมูลจากใบเสนอราคานี้แล้ว — ตรวจสอบความถูกต้องอีกครั้ง');
       });
+
+      $$('[name="link_mode"]', $('#newForm')).forEach((r) => r.addEventListener('change', renderLinkMode));
 
       $('#pkgChecklist').addEventListener('change', (e) => {
         const el = e.target.closest('[data-pkg-check]');

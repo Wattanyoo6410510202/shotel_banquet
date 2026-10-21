@@ -651,7 +651,9 @@ begin
     raise exception 'ลิงก์นี้ถูกส่งข้อมูลไปแล้ว หากต้องการแก้ไข กรุณาติดต่อโรงแรม';
   end if;
 
-  if jsonb_typeof(p_selections) is distinct from 'array' or jsonb_array_length(p_selections) = 0 then
+  -- ลิงก์ "เฉพาะเบรก" ไม่มีแพ็กเกจ (package_ids = '{}') → ส่ง p_selections เป็น [] ได้ แต่ต้องเลือกเบรกอย่างน้อย 1 รายการ (เช็กด้านล่าง)
+  if jsonb_typeof(p_selections) is distinct from 'array'
+     or (jsonb_array_length(p_selections) = 0 and cardinality(l.package_ids) > 0) then
     raise exception 'กรุณาเลือกเมนูอย่างน้อย 1 ชุด';
   end if;
 
@@ -738,6 +740,10 @@ begin
       'qty',          least(greatest(v_item_qty, 0.01), 9999)
     ));
   end loop;
+
+  if cardinality(l.package_ids) = 0 and jsonb_array_length(v_items_final) = 0 then
+    raise exception 'กรุณาเลือกเบรก/เครื่องดื่มอย่างน้อย 1 รายการ';
+  end if;
 
   update pickup_links
      set selections = v_final, extra_items = v_items_final, status = 'submitted', submitted_at = now()
