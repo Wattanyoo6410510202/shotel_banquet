@@ -28,6 +28,22 @@
     .lock-note { font-size: .85rem; padding: 8px 10px; border-radius: 8px; margin-bottom: 8px; background: var(--info-soft); color: var(--info-ink); }
     .lock-note.warn { background: var(--warn-soft); color: var(--warn-ink); }
     .lock-note ul { margin: 4px 0 0; padding-left: 18px; }
+    .mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .mode-tile { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 2px solid var(--border); border-radius: var(--radius); background: var(--surface); cursor: pointer; transition: border-color .15s, background .15s; }
+    .mode-tile:hover { border-color: var(--brand); }
+    .mode-tile input { position: absolute; opacity: 0; pointer-events: none; }
+    .mode-tile:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); }
+    .mode-tile:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+    .mode-icon { font-size: 1.6rem; line-height: 1; }
+    .mode-title { font-weight: 700; font-size: 1rem; }
+    .mode-desc { font-size: .82rem; color: var(--muted); }
+    .mode-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .mode-tag { font-size: .75rem; padding: 2px 8px; border-radius: 999px; background: var(--ok-soft); color: var(--text); }
+    .mode-tag::before { content: '✓ '; color: var(--ok); }
+    .mode-tag.soft { background: var(--hover); color: var(--muted); }
+    .mode-tag.soft::before { content: '± '; color: var(--muted); }
+    .mode-check { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: .75rem; color: transparent; }
+    .mode-tile:has(input:checked) .mode-check { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
     .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
   </style>
 </head>
@@ -93,10 +109,31 @@
 
         <div class="card" style="margin-top:12px">
           <h3 style="margin-top:0">ประเภทลิงก์</h3>
-          <label class="pkg-check-row"><input type="radio" name="link_mode" value="food" checked>
-            🍽️ เลือกอาหารตามแพ็กเกจ <span class="muted small">(+ เบรก/เครื่องดื่ม ถ้ามี)</span></label>
-          <label class="pkg-check-row"><input type="radio" name="link_mode" value="break">
-            ☕ เฉพาะเบรก <span class="muted small">(ไม่มีส่วนเลือกอาหาร)</span></label>
+          <div class="mode-grid" role="radiogroup" aria-label="ประเภทลิงก์">
+            <label class="mode-tile">
+              <input type="radio" name="link_mode" value="food" checked>
+              <span class="mode-check" aria-hidden="true">✓</span>
+              <span class="mode-icon" aria-hidden="true">🍽️</span>
+              <span class="mode-title">อาหารตามแพ็กเกจ</span>
+              <span class="mode-desc">ลูกค้าเลือกเมนูในแพ็กเกจที่กำหนด</span>
+              <span class="mode-tags">
+                <span class="mode-tag">อาหาร</span>
+                <span class="mode-tag soft">เบรก (ถ้าใบเสนอราคามี)</span>
+                <span class="mode-tag">เครื่องดื่ม</span>
+              </span>
+            </label>
+            <label class="mode-tile">
+              <input type="radio" name="link_mode" value="break">
+              <span class="mode-check" aria-hidden="true">✓</span>
+              <span class="mode-icon" aria-hidden="true">☕</span>
+              <span class="mode-title">เฉพาะเบรก</span>
+              <span class="mode-desc">ไม่มีส่วนเลือกอาหาร ไม่ต้องเลือกแพ็กเกจ</span>
+              <span class="mode-tags">
+                <span class="mode-tag">เบรก</span>
+                <span class="mode-tag">เครื่องดื่ม</span>
+              </span>
+            </label>
+          </div>
         </div>
 
         <div class="card" style="margin-top:12px" id="pkgCard">
