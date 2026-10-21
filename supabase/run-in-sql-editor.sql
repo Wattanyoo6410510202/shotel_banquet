@@ -3,8 +3,8 @@
 --  วางทั้งไฟล์นี้ใน Supabase Dashboard > SQL Editor แล้วกด Run ได้เลย (รันซ้ำได้ปลอดภัย)
 --  - เพิ่มคอลัมน์ pickup_links.include_extras (ลิงก์เดิมทั้งหมดได้ค่า true = เหมือนเดิม)
 --  - get_pickup_link ส่งค่า include_extras ให้หน้าลูกค้า
---  - submit_pickup_selection ไม่รับเมนูเสริมถ้าลิงก์ปิดไว้
---  - (2026-10-21) รองรับลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) — ต้องเลือกเบรกอย่างน้อย 1 รายการ
+--  - submit_pickup_selection ไม่รับเบรกถ้าลิงก์ปิดไว้ (เครื่องดื่มเลือกได้ทุกลิงก์)
+--  - (2026-10-21) รองรับลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) — ต้องเลือกเบรกอย่างน้อย 1 รายการ + เลือกเครื่องดื่มเพิ่มได้
 --  เนื้อหานี้รวมเข้า supabase/schema.sql แล้ว ไฟล์นี้มีไว้แค่ให้รันครั้งเดียวกับ DB จริง
 -- =====================================================================
 
@@ -95,6 +95,8 @@ declare
   v_item_qty   numeric;
   m            menu_items%rowtype;
   v_items_final jsonb := '[]'::jsonb;
+  v_is_break   boolean;
+  v_break_cnt  int := 0;
 begin
   select * into l from pickup_links where token = p_token for update;
   if not found then
@@ -173,8 +175,8 @@ begin
   end if;
 
   -- เมนูเดี่ยวเพิ่มเติมนอกแพ็กเกจ (ไม่บังคับ) เช่น Coffee Break / เครื่องดื่ม — ต้องเป็นเมนูที่เปิดใช้งานอยู่จริง
-  -- ลิงก์ที่ปิดเมนูเสริมไว้ (include_extras = false) ไม่รับรายการเหล่านี้เลย
-  for v_item in select value from jsonb_array_elements(case when l.include_extras then coalesce(p_items, '[]'::jsonb) else '[]'::jsonb end)
+  -- เครื่องดื่มเลือกได้ทุกลิงก์ · เบรกเลือกได้เฉพาะลิงก์ที่เปิดไว้ (include_extras = true) · ลิงก์ "เฉพาะเบรก" ต้องมีเบรกอย่างน้อย 1 รายการ
+  for v_item in select value from jsonb_array_elements(coalesce(p_items, '[]'::jsonb))
   loop
     v_item_id := case when v_item->>'menu_item_id' ~ '^\d{1,18}$' then (v_item->>'menu_item_id')::bigint end;
     if v_item_id is null then
@@ -184,11 +186,14 @@ begin
     if not found then
       raise exception 'เมนูที่เลือกไม่พร้อมให้บริการแล้ว กรุณาโหลดหน้าใหม่แล้วเลือกอีกครั้ง';
     end if;
-    -- ลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) รับเฉพาะเมนูในหมวดเบรก ไม่รับเครื่องดื่ม
-    if cardinality(l.package_ids) = 0 and not exists (
+    v_is_break := exists (
       select 1 from menu_categories c where c.id = m.category_id and c.name = 'อาหารว่าง (Coffee Break)'
-    ) then
-      raise exception 'ลิงก์นี้เลือกได้เฉพาะเบรกเท่านั้น';
+    );
+    if v_is_break and not l.include_extras then
+      raise exception 'ลิงก์นี้ไม่มีส่วนเลือกเบรก กรุณาโหลดหน้าใหม่แล้วเลือกอีกครั้ง';
+    end if;
+    if v_is_break then
+      v_break_cnt := v_break_cnt + 1;
     end if;
     v_item_qty := case when v_item->>'qty' ~ '^\d{1,6}(\.\d+)?$' then (v_item->>'qty')::numeric else 1 end;
     v_items_final := v_items_final || jsonb_build_array(jsonb_build_object(
@@ -200,7 +205,7 @@ begin
     ));
   end loop;
 
-  if cardinality(l.package_ids) = 0 and jsonb_array_length(v_items_final) = 0 then
+  if cardinality(l.package_ids) = 0 and v_break_cnt = 0 then
     raise exception 'กรุณาเลือกเบรกอย่างน้อย 1 รายการ';
   end if;
 

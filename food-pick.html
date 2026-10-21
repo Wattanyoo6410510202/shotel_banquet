@@ -102,10 +102,13 @@
       ]);
       if (linkRes.error) return notFound(errorMessage(linkRes.error));
       link = linkRes.data;
-      // ลิงก์ "เฉพาะเบรก" ที่สร้างจากหลังบ้าน ไม่มีแพ็กเกจอาหาร มีแต่เมนูหมวดเบรก (ไม่มีเครื่องดื่ม)
+      // ลิงก์ "เฉพาะเบรก" ที่สร้างจากหลังบ้าน ไม่มีแพ็กเกจอาหาร มีแต่ส่วนเลือกเบรก + เครื่องดื่ม
       breakOnly = !(link.packages || []).length;
+      // เครื่องดื่มขึ้นทุกลิงก์ · เบรกขึ้นเฉพาะลิงก์เฉพาะเบรก หรือลิงก์ที่เปิดเบรกไว้
+      // (include_extras = false: สร้างจากใบเสนอราคาที่ไม่มีเบรก · ลิงก์เก่าที่ไม่มีค่านี้ถือว่าเปิดไว้)
+      const showBreak = breakOnly || link.include_extras !== false;
 
-      const extraCats = (catRes.data || []).filter((c) => !breakOnly || c.name === BREAK_CATEGORY);
+      const extraCats = (catRes.data || []).filter((c) => showBreak || c.name !== BREAK_CATEGORY);
       const extraCatIds = new Set(extraCats.map((c) => c.id));
       extraCatById = new Map(extraCats.map((c) => [c.id, c.name]));
       extraItems = (itemRes.data || []).filter((m) => extraCatIds.has(m.category_id));
@@ -115,7 +118,7 @@
         $('.hero-title').textContent = pageTitle();
         document.title = pageTitle();
         $('#setsLink').style.display = 'none';
-        $('#extraTitle').textContent = 'เลือกเบรก';
+        $('#extraTitle').textContent = 'เลือกเบรก / เครื่องดื่ม';
       }
 
       const s = settingsRes.data || {};
@@ -231,9 +234,7 @@
 
     /* ---------------- เมนูเสริม (Coffee Break / เครื่องดื่ม) ---------------- */
     function renderExtras() {
-      // include_extras = false: ลิงก์นี้สร้างจากใบเสนอราคาที่ไม่มีเบรก ให้เลือกเฉพาะอาหารในแพ็กเกจ
-      // (ลิงก์ที่สร้างก่อนมีคอลัมน์นี้จะไม่มีค่า → ถือว่าเปิดไว้เหมือนเดิม)
-      if (link.include_extras === false || !extraItems.length) { $('#extraCard').hidden = true; return; }
+      if (!extraItems.length) { $('#extraCard').hidden = true; return; }
       $('#extraCard').hidden = false;
       const groups = [...extraCatById.keys()]
         .map((catId) => ({ name: extraCatById.get(catId), items: extraItems.filter((m) => m.category_id === catId) }))
@@ -357,7 +358,8 @@
       });
 
       $('#btnSubmit').addEventListener('click', async (e) => {
-        if (breakOnly && !extraSelection.size) {
+        const breakCatId = [...extraCatById].find(([, name]) => name === BREAK_CATEGORY)?.[0];
+        if (breakOnly && ![...extraSelection.keys()].some((id) => extraById.get(id)?.category_id === breakCatId)) {
           $('#submitError').textContent = 'กรุณาเลือกเบรกอย่างน้อย 1 รายการ';
           $('#extraCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
           return;
