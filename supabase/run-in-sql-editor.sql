@@ -4,7 +4,7 @@
 --  - เพิ่มคอลัมน์ pickup_links.include_extras (ลิงก์เดิมทั้งหมดได้ค่า true = เหมือนเดิม)
 --  - get_pickup_link ส่งค่า include_extras ให้หน้าลูกค้า
 --  - submit_pickup_selection ไม่รับเมนูเสริมถ้าลิงก์ปิดไว้
---  - (2026-10-21) รองรับลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) — ต้องเลือกเบรก/เครื่องดื่มอย่างน้อย 1 รายการ
+--  - (2026-10-21) รองรับลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) — ต้องเลือกเบรกอย่างน้อย 1 รายการ
 --  เนื้อหานี้รวมเข้า supabase/schema.sql แล้ว ไฟล์นี้มีไว้แค่ให้รันครั้งเดียวกับ DB จริง
 -- =====================================================================
 
@@ -184,6 +184,12 @@ begin
     if not found then
       raise exception 'เมนูที่เลือกไม่พร้อมให้บริการแล้ว กรุณาโหลดหน้าใหม่แล้วเลือกอีกครั้ง';
     end if;
+    -- ลิงก์ "เฉพาะเบรก" (ไม่มีแพ็กเกจ) รับเฉพาะเมนูในหมวดเบรก ไม่รับเครื่องดื่ม
+    if cardinality(l.package_ids) = 0 and not exists (
+      select 1 from menu_categories c where c.id = m.category_id and c.name = 'อาหารว่าง (Coffee Break)'
+    ) then
+      raise exception 'ลิงก์นี้เลือกได้เฉพาะเบรกเท่านั้น';
+    end if;
     v_item_qty := case when v_item->>'qty' ~ '^\d{1,6}(\.\d+)?$' then (v_item->>'qty')::numeric else 1 end;
     v_items_final := v_items_final || jsonb_build_array(jsonb_build_object(
       'menu_item_id', m.id,
@@ -195,7 +201,7 @@ begin
   end loop;
 
   if cardinality(l.package_ids) = 0 and jsonb_array_length(v_items_final) = 0 then
-    raise exception 'กรุณาเลือกเบรก/เครื่องดื่มอย่างน้อย 1 รายการ';
+    raise exception 'กรุณาเลือกเบรกอย่างน้อย 1 รายการ';
   end if;
 
   update pickup_links

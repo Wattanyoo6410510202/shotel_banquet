@@ -74,12 +74,13 @@
   <script>
     $('#heroTop').appendChild(themeToggleButton());
 
-    const EXTRA_CATEGORIES = ['อาหารว่าง (Coffee Break)', 'เครื่องดื่ม'];
+    const BREAK_CATEGORY = 'อาหารว่าง (Coffee Break)';
+    const EXTRA_CATEGORIES = [BREAK_CATEGORY, 'เครื่องดื่ม'];
 
     let link = null;
     let token = '';
     let breakOnly = false;
-    const pageTitle = () => (breakOnly ? 'เลือกเบรก / เครื่องดื่ม' : 'เลือกเมนูอาหาร');
+    const pageTitle = () => (breakOnly ? 'เลือกเบรก' : 'เลือกเมนูอาหาร');
     const pkgChoices = new Map(); // package_id -> Map(course_id -> Set(menu_item_id))
     const pkgNotes = new Map();   // package_id -> string
     let extraItems = [];          // เมนูเสริม (Coffee Break / เครื่องดื่ม) ที่เลือกเพิ่มได้นอกแพ็กเกจ
@@ -101,11 +102,12 @@
       ]);
       if (linkRes.error) return notFound(errorMessage(linkRes.error));
       link = linkRes.data;
-      // ลิงก์ "เฉพาะเบรก" ที่สร้างจากหลังบ้าน ไม่มีแพ็กเกจอาหาร มีแต่ส่วนเลือกเบรก/เครื่องดื่ม
+      // ลิงก์ "เฉพาะเบรก" ที่สร้างจากหลังบ้าน ไม่มีแพ็กเกจอาหาร มีแต่เมนูหมวดเบรก (ไม่มีเครื่องดื่ม)
       breakOnly = !(link.packages || []).length;
 
-      const extraCatIds = new Set((catRes.data || []).map((c) => c.id));
-      extraCatById = new Map((catRes.data || []).map((c) => [c.id, c.name]));
+      const extraCats = (catRes.data || []).filter((c) => !breakOnly || c.name === BREAK_CATEGORY);
+      const extraCatIds = new Set(extraCats.map((c) => c.id));
+      extraCatById = new Map(extraCats.map((c) => [c.id, c.name]));
       extraItems = (itemRes.data || []).filter((m) => extraCatIds.has(m.category_id));
       extraById = new Map(extraItems.map((m) => [m.id, m]));
 
@@ -113,7 +115,7 @@
         $('.hero-title').textContent = pageTitle();
         document.title = pageTitle();
         $('#setsLink').style.display = 'none';
-        $('#extraTitle').textContent = 'เลือกเบรก / เครื่องดื่ม';
+        $('#extraTitle').textContent = 'เลือกเบรก';
       }
 
       const s = settingsRes.data || {};
@@ -356,7 +358,7 @@
 
       $('#btnSubmit').addEventListener('click', async (e) => {
         if (breakOnly && !extraSelection.size) {
-          $('#submitError').textContent = 'กรุณาเลือกเบรก/เครื่องดื่มอย่างน้อย 1 รายการ';
+          $('#submitError').textContent = 'กรุณาเลือกเบรกอย่างน้อย 1 รายการ';
           $('#extraCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
           return;
         }
